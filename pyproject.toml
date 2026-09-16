@@ -1,0 +1,9 @@
+[project]
+name = "sim-hedge"
+version = "0.1.0"
+description = "A small, test-driven hedge simulation built one lesson at a time."
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
