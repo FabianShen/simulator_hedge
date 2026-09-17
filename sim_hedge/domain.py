@@ -19,6 +19,8 @@ class MarketQuote:
     def __post_init__(self) -> None:
         if not self.instrument:
             raise ValueError("instrument must not be empty")
+        if self.received_at.tzinfo is None:
+            raise ValueError("received_at must be timezone-aware")
         if self.last is not None and self.last <= 0:
             raise ValueError("last must be positive when present")
         if self.bid is not None and self.bid <= 0:

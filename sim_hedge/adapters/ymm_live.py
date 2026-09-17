@@ -110,7 +110,8 @@ class YmmLiveDataSource:
         """SDK callback: enqueue the immutable batch and return immediately."""
 
         try:
-            self._queue.put_nowait(batch)
+            received_at = datetime.now(timezone.utc)
+            self._queue.put_nowait((received_at, batch))
             self.health.received_batches += 1
             self.health.received_messages += len(batch)
         except Full:
@@ -157,9 +158,10 @@ class YmmLiveDataSource:
             try:
                 if item is self._STOP:
                     return
-                for message in item:
+                received_at, batch = item
+                for message in batch:
                     try:
-                        quote = normalize_tick(message)
+                        quote = normalize_tick(message, received_at=received_at)
                         self._on_quote(quote)
                     except Exception as exc:
                         self.health.rejected_messages += 1
@@ -204,6 +206,7 @@ def _first_positive(values: Any) -> float | None:
     except (IndexError, KeyError, TypeError):
         return None
 
+
 def _parse_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value
@@ -215,6 +218,7 @@ def _parse_datetime(value: Any) -> datetime | None:
         except ValueError:
             pass
     return None
+
 
 def _parse_date(value: Any) -> date | None:
     if isinstance(value, datetime):

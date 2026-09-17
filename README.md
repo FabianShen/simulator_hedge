@@ -5,7 +5,8 @@
 The market-data boundary subscribes to `ymm_live_data_sdk` tick channels and
 converts vendor dictionaries into internal `MarketQuote` values. The SDK
 callback only places batches into a bounded queue; normalization and application
-work happen on a separate consumer thread.
+work happen on a separate consumer thread. A thread-safe `MarketState` keeps one
+latest quote per instrument and reports whether all required quotes are fresh.
 
 ## Run
 
@@ -80,8 +81,10 @@ sim_hedge/
 │   ├── adapters/
 │   │   └── ymm_live.py   Live SDK connection and translation boundary
 │   ├── domain.py         Domain values only
+│   ├── market_state.py   Latest quotes and market readiness
 │   └── ports.py          Interfaces required by the application
 ├── tests/
+│   ├── test_market_state.py
 │   └── test_ymm_live.py
 ├── .gitignore
 ├── pyproject.toml

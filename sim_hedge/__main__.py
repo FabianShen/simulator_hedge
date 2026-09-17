@@ -1,9 +1,11 @@
 """Stream normalized live quotes with ``python -m sim_hedge``."""
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import os
 
 from sim_hedge.adapters.ymm_live import YmmLiveDataSource
+from sim_hedge.market_state import MarketState
 
 
 def main() -> None:
@@ -18,10 +20,12 @@ def main() -> None:
         parser.error("set LIVE_TOKEN before running")
 
     source = YmmLiveDataSource(token=token, mode=args.mode, instruments=args.instruments)
+    market_state = MarketState(args.instruments)
     count = 0
 
     def display(quote) -> None:
         nonlocal count
+        market_state.apply_quote(quote)
         count += 1
         print(
             f"{quote.observed_at.isoformat()} {quote.instrument} "
@@ -41,6 +45,12 @@ def main() -> None:
         raise SystemExit(f"live feed failed: {type(exc).__name__}: {exc}") from exc
     finally:
         print(f"feed health: {source.health}", flush=True)
+        readiness = market_state.readiness(
+            now=datetime.now(timezone.utc),
+            max_age=timedelta(seconds=5),
+            feed_unsafe=source.health.data_unsafe,
+        )
+        print(f"market state: {readiness}", flush=True)
 
 
 if __name__ == "__main__":
