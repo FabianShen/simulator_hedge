@@ -1,0 +1,19 @@
+{
+  "spot": 3.3,
+  "time_to_expiry": 0.0821917808219178,
+  "rate": 0.015,
+  "dividend_yield": 0.0,
+  "beta": 0.5,
+  "options": [
+    {"instrument": "C-3.0", "option_type": "CALL", "strike": 3.0, "market_price": 0.30838113667027567},
+    {"instrument": "P-3.0", "option_type": "PUT", "strike": 3.0, "market_price": 0.004684785574083407},
+    {"instrument": "C-3.15", "option_type": "CALL", "strike": 3.15, "market_price": 0.1754180050646976},
+    {"instrument": "P-3.15", "option_type": "PUT", "strike": 3.15, "market_price": 0.021536836413695623},
+    {"instrument": "C-3.3", "option_type": "CALL", "strike": 3.3, "market_price": 0.07499325968826887},
+    {"instrument": "P-3.3", "option_type": "PUT", "strike": 3.3, "market_price": 0.0709272734824576},
+    {"instrument": "C-3.45", "option_type": "CALL", "strike": 3.45, "market_price": 0.021458113654442272},
+    {"instrument": "P-3.45", "option_type": "PUT", "strike": 3.45, "market_price": 0.16720730989382138},
+    {"instrument": "C-3.6", "option_type": "CALL", "strike": 3.6, "market_price": 0.0038417106454470625},
+    {"instrument": "P-3.6", "option_type": "PUT", "strike": 3.6, "market_price": 0.29940608933001633}
+  ]
+}

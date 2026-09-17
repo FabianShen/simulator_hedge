@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 
 from sim_hedge.domain import OptionContract, OptionType
-from sim_hedge.sim_hedge.option_chain import subscription, summarize
+from sim_hedge.option_chain import subscription, summarize
 
 
 def contract(option_type: OptionType, strike: float, maturity: date) -> OptionContract:

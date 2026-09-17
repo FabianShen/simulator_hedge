@@ -1,0 +1,60 @@
+{
+  "requestId": "example-20260917-0001",
+  "asOf": "2026-09-17T06:00:00Z",
+  "underlying": {
+    "instrument": "159915.XSHE",
+    "spot": 3.317,
+    "observedAt": "2026-09-17T06:00:00Z"
+  },
+  "options": [
+    {
+      "instrument": "EXAMPLE-CALL-3.3",
+      "optionType": "OPTION_TYPE_CALL",
+      "exerciseStyle": "EXERCISE_STYLE_EUROPEAN",
+      "strike": 3.3,
+      "expiry": "2026-09-23T07:00:00Z",
+      "observedAt": "2026-09-17T06:00:00Z",
+      "contractMultiplier": 10000,
+      "priceTick": 0.0001,
+      "marketPrice": 0.0525,
+      "marketPriceSource": "MARKET_PRICE_SOURCE_MID"
+    },
+    {
+      "instrument": "EXAMPLE-CALL-3.2",
+      "optionType": "OPTION_TYPE_CALL",
+      "exerciseStyle": "EXERCISE_STYLE_EUROPEAN",
+      "strike": 3.2,
+      "expiry": "2026-09-23T07:00:00Z",
+      "observedAt": "2026-09-17T06:00:00Z",
+      "contractMultiplier": 10000,
+      "priceTick": 0.0001,
+      "marketPrice": 0.128,
+      "marketPriceSource": "MARKET_PRICE_SOURCE_MID"
+    },
+    {
+      "instrument": "EXAMPLE-CALL-3.4",
+      "optionType": "OPTION_TYPE_CALL",
+      "exerciseStyle": "EXERCISE_STYLE_EUROPEAN",
+      "strike": 3.4,
+      "expiry": "2026-09-23T07:00:00Z",
+      "observedAt": "2026-09-17T06:00:00Z",
+      "contractMultiplier": 10000,
+      "priceTick": 0.0001,
+      "marketPrice": 0.021,
+      "marketPriceSource": "MARKET_PRICE_SOURCE_MID"
+    }
+  ],
+  "assumptions": {
+    "riskFreeRate": 0.015,
+    "dividendYield": 0.0,
+    "dayCount": "DAY_COUNT_ACT_365_FIXED"
+  },
+  "configuration": {
+    "model": "PRICING_MODEL_SABR_BLACK_76",
+    "calculateImpliedVolatility": true,
+    "sabr": {
+      "beta": 0.5,
+      "minimumStrikes": 3
+    }
+  }
+}

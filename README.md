@@ -16,6 +16,17 @@ During the run, a monitor reports coverage/readiness once per second and writes
 `outputs/market_state.json` atomically for diagnostics. Pricing will consume the
 in-memory `MarketState`, not this JSON file.
 
+The external pricing boundary is defined independently in
+`protocols/pricing/v1/pricing.proto`. It contains no YMM types, credentials,
+positions, or order operations, so compatible Python and C++ engines can run
+locally, remotely, or against recorded requests.
+
+Run the dependency-free SABR/Black-76 reference engine without live data:
+
+```powershell
+.\.venv\Scripts\python.exe -m pricing_engine
+```
+
 ## Run
 
 ```powershell
@@ -92,6 +103,9 @@ $env:DATA_TOKEN = "your-data-token"
 
 ```text
 sim_hedge/
+├── protocols/
+│   └── pricing/v1/      Versioned external pricing contract
+├── pricing_engine/         Independent reference-engine project
 ├── sim_hedge/
 │   ├── __init__.py       Public package information
 │   ├── __main__.py       Command-line entry point
@@ -108,6 +122,7 @@ sim_hedge/
 │   ├── test_market_state.py
 │   ├── test_market_monitor.py
 │   ├── test_option_chain.py
+│   ├── test_pricing_protocol_examples.py
 │   ├── test_strategy_universe.py
 │   ├── test_ymm_reference.py
 │   └── test_ymm_live.py

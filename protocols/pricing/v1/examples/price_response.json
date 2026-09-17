@@ -1,0 +1,54 @@
+{
+  "requestId": "example-20260917-0001",
+  "calculatedAt": "2026-09-17T06:00:00.002Z",
+  "engineName": "reference-python",
+  "engineVersion": "0.1.0",
+  "model": "PRICING_MODEL_SABR_BLACK_76",
+  "results": [
+    {
+      "instrument": "EXAMPLE-CALL-3.3",
+      "status": "RESULT_STATUS_OK",
+      "theoreticalPrice": 0.0525,
+      "impliedVolatility": 0.218,
+      "volatilityUsed": 0.218,
+      "delta": 0.61,
+      "gamma": 4.2,
+      "thetaPerYear": -0.31,
+      "vegaPerAbsoluteVolatility": 0.15,
+      "rhoPerAbsoluteRate": 0.03
+    },
+    {
+      "instrument": "EXAMPLE-CALL-3.2",
+      "status": "RESULT_STATUS_OK",
+      "theoreticalPrice": 0.127,
+      "impliedVolatility": 0.224,
+      "volatilityUsed": 0.221,
+      "delta": 0.79,
+      "gamma": 2.1,
+      "thetaPerYear": -0.28,
+      "vegaPerAbsoluteVolatility": 0.11,
+      "rhoPerAbsoluteRate": 0.04
+    },
+    {
+      "instrument": "EXAMPLE-CALL-3.4",
+      "status": "RESULT_STATUS_OK",
+      "theoreticalPrice": 0.022,
+      "impliedVolatility": 0.215,
+      "volatilityUsed": 0.217,
+      "delta": 0.25,
+      "gamma": 2.0,
+      "thetaPerYear": -0.25,
+      "vegaPerAbsoluteVolatility": 0.1,
+      "rhoPerAbsoluteRate": 0.01
+    }
+  ],
+  "sabrCalibration": {
+    "forward": 3.3178,
+    "alpha": 0.39,
+    "beta": 0.5,
+    "nu": 0.8,
+    "rho": -0.3,
+    "rmse": 0.004,
+    "validStrikes": 3
+  }
+}

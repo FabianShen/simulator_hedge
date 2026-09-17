@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package sim_hedge.pricing.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// A calculation-only service. It owns no positions, orders, or vendor sessions.
+service PricingService {
+  rpc Health(google.protobuf.Empty) returns (HealthResponse);
+  rpc Price(PriceRequest) returns (PriceResponse);
+}
+
+enum OptionType {
+  OPTION_TYPE_UNSPECIFIED = 0;
+  OPTION_TYPE_CALL = 1;
+  OPTION_TYPE_PUT = 2;
+}
+
+enum ExerciseStyle {
+  EXERCISE_STYLE_UNSPECIFIED = 0;
+  EXERCISE_STYLE_EUROPEAN = 1;
+}
+
+enum PricingModel {
+  PRICING_MODEL_UNSPECIFIED = 0;
+  PRICING_MODEL_BLACK_SCHOLES = 1;
+  PRICING_MODEL_SABR_BLACK_76 = 2;
+}
+
+enum DayCount {
+  DAY_COUNT_UNSPECIFIED = 0;
+  DAY_COUNT_ACT_365_FIXED = 1;
+}
+
+enum MarketPriceSource {
+  MARKET_PRICE_SOURCE_UNSPECIFIED = 0;
+  MARKET_PRICE_SOURCE_MID = 1;
+  MARKET_PRICE_SOURCE_LAST = 2;
+  MARKET_PRICE_SOURCE_MANUAL = 3;
+}
+
+enum ResultStatus {
+  RESULT_STATUS_UNSPECIFIED = 0;
+  RESULT_STATUS_OK = 1;
+  RESULT_STATUS_INVALID_INPUT = 2;
+  RESULT_STATUS_NO_SOLUTION = 3;
+  RESULT_STATUS_INTERNAL_ERROR = 4;
+}
+
+message HealthResponse {
+  string engine_name = 1;
+  string engine_version = 2;
+  string protocol_version = 3;
+}
+
+message UnderlyingInput {
+  string instrument = 1;
+  double spot = 2;
+  google.protobuf.Timestamp observed_at = 3;
+}
+
+message OptionInput {
+  string instrument = 1;
+  OptionType option_type = 2;
+  ExerciseStyle exercise_style = 3;
+  double strike = 4;
+
+  // Exact UTC exercise/settlement instant. A maturity date alone is ambiguous.
+  google.protobuf.Timestamp expiry = 5;
+  google.protobuf.Timestamp observed_at = 6;
+
+  int32 contract_multiplier = 7;
+  double price_tick = 8;
+
+  // Market price chosen by the gateway, not a vendor-specific quote payload.
+  optional double market_price = 9;
+  MarketPriceSource market_price_source = 10;
+
+  // Annualized decimal volatility: 0.20 means 20%.
+  // When absent, the engine may solve it from market_price.
+  optional double volatility = 11;
+}
+
+message MarketAssumptions {
+  // Annualized, continuously compounded decimals: 0.02 means 2%.
+  double risk_free_rate = 1;
+  double dividend_yield = 2;
+  DayCount day_count = 3;
+}
+
+message ModelConfiguration {
+  PricingModel model = 1;
+  bool calculate_implied_volatility = 2;
+  SabrConfiguration sabr = 3;
+}
+
+message SabrConfiguration {
+  // Fixed CEV exponent. Common starting values are 0.5 or 1.0.
+  double beta = 1;
+  int32 minimum_strikes = 2;
+}
+
+message PriceRequest {
+  // Unique and stable across retries so callers can match/deduplicate results.
+  string request_id = 1;
+  google.protobuf.Timestamp as_of = 2;
+  UnderlyingInput underlying = 3;
+  repeated OptionInput options = 4;
+  MarketAssumptions assumptions = 5;
+  ModelConfiguration configuration = 6;
+}
+
+message OptionResult {
+  string instrument = 1;
+  ResultStatus status = 2;
+  string error = 3;
+
+  optional double theoretical_price = 4;
+  optional double implied_volatility = 5;
+  optional double volatility_used = 6;
+
+  // Per one underlying unit. Portfolio scaling belongs to the hedge engine.
+  optional double delta = 7;
+  optional double gamma = 8;
+
+  // Change for one year of time and a +1.0 absolute volatility/rate move.
+  optional double theta_per_year = 9;
+  optional double vega_per_absolute_volatility = 10;
+  optional double rho_per_absolute_rate = 11;
+  optional double implied_volatility_error = 12;
+}
+
+message SabrCalibration {
+  double forward = 1;
+  double alpha = 2;
+  double beta = 3;
+  double nu = 4;
+  double rho = 5;
+  double rmse = 6;
+  int32 valid_strikes = 7;
+}
+
+message PriceResponse {
+  string request_id = 1;
+  google.protobuf.Timestamp calculated_at = 2;
+  string engine_name = 3;
+  string engine_version = 4;
+  PricingModel model = 5;
+  repeated OptionResult results = 6;
+  string error = 7;
+  SabrCalibration sabr_calibration = 8;
+}
