@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 
 from sim_hedge.domain import OptionContract, OptionType
-from sim_hedge.option_chain import summarize
+from sim_hedge.option_chain import subscription, summarize
 
 
 def contract(option_type: OptionType, strike: float, maturity: date) -> OptionContract:
@@ -36,6 +36,31 @@ class SummarizeOptionChainTests(unittest.TestCase):
         self.assertEqual(summaries[0].puts, 1)
         self.assertEqual(summaries[0].minimum_strike, 3.2)
         self.assertEqual(summaries[0].maximum_strike, 3.4)
+
+    def test_builds_unique_subscription_universe_with_underlying_first(self) -> None:
+        maturity = date(2026, 9, 23)
+        option = contract(OptionType.CALL, 3.2, maturity)
+
+        instruments = subscription(
+            "159915.XSHE",
+            [option, option],
+        )
+
+        self.assertEqual(instruments, ["159915.XSHE", option.instrument])
+
+    def test_rejects_contract_from_another_underlying(self) -> None:
+        option = OptionContract(
+            instrument="OTHER-CALL",
+            underlying="OTHER",
+            option_type=OptionType.CALL,
+            strike=3.2,
+            maturity=date(2026, 9, 23),
+            contract_multiplier=10000,
+            price_tick=0.0001,
+        )
+
+        with self.assertRaisesRegex(ValueError, "requested underlying"):
+            subscription("159915.XSHE", [option])
 
 
 if __name__ == "__main__":

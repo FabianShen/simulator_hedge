@@ -32,3 +32,14 @@ def summarize(contracts: list[OptionContract]) -> list[ExpirySummary]:
             )
         )
     return summaries
+
+
+def subscription(
+    underlying: str,
+    contracts: list[OptionContract],
+) -> list[str]:
+    """Subscript underlying to the option chain with single identifier"""
+
+    if any(contract.underlying != underlying for contract in contracts):
+        raise ValueError("all option contracts must belong to the requested underlying")
+    return list(dict.fromkeys([underlying, *(contract.instrument for contract in contracts)]))

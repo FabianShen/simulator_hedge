@@ -7,17 +7,20 @@ converts vendor dictionaries into internal `MarketQuote` values. The SDK
 callback only places batches into a bounded queue; normalization and application
 work happen on a separate consumer thread. A thread-safe `MarketState` keeps one
 latest quote per instrument and reports whether all required quotes are fresh.
+Normal startup loads the active option chain through Data SDK, closes that SDK,
+then subscribes through Live SDK to the underlying and every active option.
 
 ## Run
 
 ```powershell
 python -m venv --system-site-packages .venv
 .\.venv\Scripts\python -m pip install --no-deps ..\ymm_live_data_sdk-0.8.7-py3-none-any.whl
+.\.venv\Scripts\python -m pip install --no-deps ..\ymm_data_sdk-0.9.16-py3-none-any.whl
 $env:LIVE_TOKEN = "your-live-token"
+$env:DATA_TOKEN = "your-data-token"
 .\.venv\Scripts\python -m sim_hedge 159915.XSHE --mode lan
 
-.\.venv\Scripts\python -m pip install --no-deps ..\ymm_data_sdk-0.9.16-py3-none-any.whl
-$env:DATA_TOKEN = "your-data-token"
+# Contract-metadata diagnostic only; does not start Live SDK:
 .\.venv\Scripts\python -m sim_hedge --option-chain 159915.XSHE --mode lan
 
 .\.venv\Scripts\python -m unittest discover -s tests -v
