@@ -2,7 +2,9 @@
 
 from typing import Protocol
 
-from sim_hedge.domain import MarketQuote
+from datetime import date
+
+from sim_hedge.domain import MarketQuote, OptionContract
 
 
 class MarketDataSource(Protocol):
@@ -18,3 +20,12 @@ class MarketDataSource(Protocol):
 class QuoteHandler(Protocol):
     def __call__(self, quote: MarketQuote) -> None:
         """Consume one normalized live quote."""
+
+
+class OptionReferenceSource(Protocol):
+    def load_option_chain(
+        self,
+        underlying: str,
+        trading_date: date,
+    ) -> list[OptionContract]:
+        """Return active option contracts for one underlying and trading date."""

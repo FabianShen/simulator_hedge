@@ -1,11 +1,13 @@
 """Stream normalized live quotes with ``python -m sim_hedge``."""
 
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import os
 
 from sim_hedge.adapters.ymm_live import YmmLiveDataSource
+from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
 from sim_hedge.market_state import MarketState
+from sim_hedge.option_chain import summarize
 
 
 def main() -> None:
@@ -13,7 +15,16 @@ def main() -> None:
     parser.add_argument("instruments", nargs="*", default=["159915.XSHE"])
     parser.add_argument("--mode", choices=("lan", "TS"), default=os.getenv("LIVE_MODE", "lan"))
     parser.add_argument("--max-quotes", type=int, default=0, help="stop after N quotes; 0 no stop")
+    parser.add_argument(
+        "--option-chain",
+        metavar="UNDERLYING",
+        help="print active option metadata and exit without starting the live feed",
+    )
     args = parser.parse_args()
+
+    if args.option_chain:
+        print_option_chain(args.option_chain, args.mode, parser)
+        return
 
     token = os.getenv("LIVE_TOKEN")
     if not token:
@@ -51,6 +62,25 @@ def main() -> None:
             feed_unsafe=source.health.data_unsafe,
         )
         print(f"market state: {readiness}", flush=True)
+
+
+def print_option_chain(underlying: str, mode: str, parser: argparse.ArgumentParser) -> None:
+    token = os.getenv("DATA_TOKEN")
+    if not token:
+        parser.error("set DATA_TOKEN before requesting the option chain")
+
+    with YmmReferenceDataSource(token=token, mode=mode) as source:
+        contracts = source.load_option_chain(underlying, date.today())
+
+    summaries = summarize(contracts)
+    print(f"underlying: {underlying}")
+    print(f"contracts:  {len(contracts)}")
+    print(f"maturities: {len(summaries)}")
+    for summary in summaries:
+        print(
+            f"{summary.maturity.isoformat()}  calls={summary.calls} puts={summary.puts} "
+            f"strikes={summary.minimum_strike:g}-{summary.maximum_strike:g}"
+        )
 
 
 if __name__ == "__main__":
