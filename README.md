@@ -9,6 +9,9 @@ work happen on a separate consumer thread. A thread-safe `MarketState` keeps one
 latest quote per instrument and reports whether all required quotes are fresh.
 Normal startup loads the active option chain through Data SDK, closes that SDK,
 then subscribes through Live SDK to the underlying and every active option.
+The first underlying quote selects one maturity and nearby complete call/put
+pairs as the strategy universe. Only those instruments must be fresh before
+pricing is allowed to run.
 During the run, a monitor reports coverage/readiness once per second and writes
 `outputs/market_state.json` atomically for diagnostics. Pricing will consume the
 in-memory `MarketState`, not this JSON file.
@@ -23,8 +26,11 @@ $env:LIVE_TOKEN = "your-live-token"
 $env:DATA_TOKEN = "your-data-token"
 .\.venv\Scripts\python -m sim_hedge 159915.XSHE --mode lan
 
+# Use the second maturity and three strike levels on each side of ATM:
+.\.venv\Scripts\python -m sim_hedge 159915.XSHE --expiry-index 1 --strike-wings 3
+
 # Contract-metadata diagnostic only; does not start Live SDK:
-.\.venv\Scripts\python -m sim_hedge --option-chain 159915.XSHE --mode lan
+.\.venv\Scripts\python -m sim_hedge --check-options 159915.XSHE --mode lan
 
 .\.venv\Scripts\python -m unittest discover -s tests -v
 ```
@@ -96,11 +102,13 @@ sim_hedge/
 │   ├── market_monitor.py Diagnostic status and atomic JSON projection
 │   ├── market_state.py   Latest quotes and market readiness
 │   ├── option_chain.py   Option-chain inspection logic
+│   ├── strategy_universe.py  Pricing-universe selection
 │   └── ports.py          Interfaces required by the application
 ├── tests/
 │   ├── test_market_state.py
 │   ├── test_market_monitor.py
 │   ├── test_option_chain.py
+│   ├── test_strategy_universe.py
 │   ├── test_ymm_reference.py
 │   └── test_ymm_live.py
 ├── .gitignore

@@ -30,6 +30,20 @@ class MarketState:
         self._quotes: dict[str, MarketQuote] = {}
         self._lock = Lock()
 
+    @property
+    def required_instruments(self) -> tuple[str, ...]:
+        with self._lock:
+            return self._required
+
+    def set_required(self, instruments: Iterable[str]) -> None:
+        """Replace the instruments that must be fresh before pricing can run."""
+
+        required = tuple(dict.fromkeys(instruments))
+        if not required or any(not instrument for instrument in required):
+            raise ValueError("at least one non-empty required instrument is needed")
+        with self._lock:
+            self._required = required
+
     def apply_quote(self, quote: MarketQuote) -> None:
         """Replace the latest quote for one instrument atomically."""
 
@@ -58,11 +72,13 @@ class MarketState:
         if now.tzinfo is None:
             raise ValueError("now must be timezone-aware")
 
-        quotes = self.snapshot()
-        missing = tuple(code for code in self._required if code not in quotes)
+        with self._lock:
+            quotes = dict(self._quotes)
+            required = self._required
+        missing = tuple(code for code in required if code not in quotes)
         stale = tuple(
             code
-            for code in self._required
+            for code in required
             if code in quotes and now - quotes[code].received_at > max_age
         )
         return MarketReadiness(

@@ -10,6 +10,7 @@ from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
 from sim_hedge.option_chain import subscription, summarize
+from sim_hedge.strategy_universe import StrategyUniverse, select_strategy_universe
 
 
 def main() -> None:
@@ -17,6 +18,19 @@ def main() -> None:
     parser.add_argument("underlying", nargs="?", default="159915.XSHE")
     parser.add_argument("--mode", choices=("lan", "TS"), default=os.getenv("LIVE_MODE", "lan"))
     parser.add_argument("--max-quotes", type=int, default=0, help="stop after N quotes; 0 no stop")
+    parser.add_argument(
+        "--expiry",
+        metavar="INDEX",
+        type=int,
+        default=0,
+        help="zero-based maturity to use for the strategy; default: DTE",
+    )
+    parser.add_argument(
+        "--strike-wings",
+        type=int,
+        default=2,
+        help="strike levels on each side of ATM; default: 2",
+    )
     parser.add_argument(
         "--snapshot",
         default="outputs/market_state.json",
@@ -28,6 +42,10 @@ def main() -> None:
         help="print active option metadata without live",
     )
     args = parser.parse_args()
+    if args.expiry < 0:
+        parser.error("--expiry must not be negative")
+    if args.strike_wings < 0:
+        parser.error("--strike-wings must not be negative")
     # Review option chain without activate live feed
     if args.check_options:
         contracts = load_option_chain(args.check_options, args.mode, parser)
@@ -45,16 +63,32 @@ def main() -> None:
         mode=args.mode,
         instruments=instruments,
     )
-    # Until a strategy selects its required option legs, only the underlying is
-    # mandatory for readiness. Every received option quote is still retained.
+    # The first underlying quote supplies the spot needed to select ATM strikes.
     market_state = MarketState([args.underlying])
     count = 0
+    universe: StrategyUniverse | None = None
 
     def on_quote(quote) -> None:
-        nonlocal count
+        nonlocal count, universe
         if args.max_quotes > 0 and count >= args.max_quotes:
             return
         market_state.apply_quote(quote)
+        if quote.instrument == args.underlying and universe is None:
+            spot = quote_price(quote)
+            universe = select_strategy_universe(
+                contracts,
+                spot,
+                expiry_index=args.expiry,
+                strike_wings=args.strike_wings,
+            )
+            market_state.set_required([args.underlying, *universe.instruments])
+            print(
+                f"strategy universe: maturity={universe.maturity.isoformat()} "
+                f"spot={spot:g} center={universe.center_strike:g} "
+                f"strikes={len(universe.strikes)} "
+                f"options={len(universe.contracts)}",
+                flush=True,
+            )
         count += 1
         if args.max_quotes > 0 and count >= args.max_quotes:
             source.stop()
@@ -112,6 +146,20 @@ def load_option_chain(
     if not contracts:
         parser.error(f"no active option contracts found for {underlying}")
     return contracts
+
+
+def quote_price(quote) -> float:
+    """Choose the best available underlying price for universe selection."""
+
+    if quote.last is not None:
+        return quote.last
+    if quote.bid is not None and quote.ask is not None:
+        return (quote.bid + quote.ask) / 2
+    if quote.bid is not None:
+        return quote.bid
+    if quote.ask is not None:
+        return quote.ask
+    raise ValueError(f"quote for {quote.instrument} contains no usable price")
 
 
 def print_option_chain(underlying: str, contracts: list[OptionContract]) -> None:

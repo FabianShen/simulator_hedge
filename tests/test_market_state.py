@@ -21,6 +21,16 @@ def quote(instrument: str, received_at: datetime = NOW) -> MarketQuote:
 
 
 class MarketStateTests(unittest.TestCase):
+    def test_required_instruments_can_change_after_universe_selection(self) -> None:
+        state = MarketState(["UNDERLYING"])
+
+        state.set_required(["UNDERLYING", "CALL", "PUT"])
+
+        self.assertEqual(
+            state.required_instruments,
+            ("UNDERLYING", "CALL", "PUT"),
+        )
+
     def test_is_not_ready_while_a_required_quote_is_missing(self) -> None:
         state = MarketState(["UNDERLYING", "OPTION"])
         state.apply_quote(quote("UNDERLYING"))

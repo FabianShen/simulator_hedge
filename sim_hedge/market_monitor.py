@@ -75,6 +75,7 @@ class MarketMonitor:
             },
             "required": {
                 "ready": readiness.ready,
+                "instruments": list(self._market_state.required_instruments),
                 "missing": list(readiness.missing),
                 "stale": list(readiness.stale),
             },
