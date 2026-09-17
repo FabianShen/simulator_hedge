@@ -63,6 +63,19 @@ class NormalizeTickTests(unittest.TestCase):
             ),
         )
 
+    def test_normalizes_integer_wire_timestamps(self) -> None:
+        quote = normalize_tick({
+            "order_book_id": "159915.XSHE",
+            "datetime": 20260917095609000,
+            "trading_date": 20260917,
+            "last": 3.34,
+            "bid": [3.338],
+            "ask": [3.340],
+        })
+
+        self.assertEqual(quote.observed_at, datetime(2026, 9, 17, 9, 56, 9))
+        self.assertEqual(quote.trading_date, date(2026, 9, 17))
+
     def test_rejects_a_tick_without_any_valid_price(self) -> None:
         with self.assertRaisesRegex(LiveMarketDataError, "at least one valid price"):
             normalize_tick(
@@ -117,7 +130,21 @@ class YmmLiveDataSourceTests(unittest.TestCase):
         source._on_status(SimpleNamespace(component="hub", state="disconnected"))
 
         self.assertTrue(source.health.data_unsafe)
-        self.assertEqual(source.health.last_error, "hub/disconnected")
+        self.assertEqual(source.health.last_status_error, "hub/disconnected")
+
+    def test_ignores_disconnect_caused_by_requested_stop(self) -> None:
+        source = YmmLiveDataSource(
+            token="secret",
+            instruments=["159915.XSHE"],
+            sdk=FakeSdk(),
+            client_factory=lambda: FakeClient(()),
+        )
+        source._stop_requested = True
+
+        source._on_status(SimpleNamespace(component="hub", state="reconnecting"))
+
+        self.assertFalse(source.health.data_unsafe)
+        self.assertIsNone(source.health.last_status_error)
 
     def test_closes_sdk_when_client_creation_fails(self) -> None:
         sdk = FakeSdk()

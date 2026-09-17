@@ -9,17 +9,13 @@ from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 def main() -> None:
     parser = argparse.ArgumentParser(description="Stream live YMM market ticks")
     parser.add_argument("instruments", nargs="*", default=["159915.XSHE"])
-    parser.add_argument(
-        "--mode", choices=("lan", "TS"), default=os.getenv("YMM_LIVE_MODE", "lan")
-    )
-    parser.add_argument(
-        "--max-quotes", type=int, default=0, help="stop after N quotes; 0 runs continuously"
-    )
+    parser.add_argument("--mode", choices=("lan", "TS"), default=os.getenv("LIVE_MODE", "lan"))
+    parser.add_argument("--max-quotes", type=int, default=0, help="stop after N quotes; 0 no stop")
     args = parser.parse_args()
 
-    token = os.getenv("YMM_LIVE_DATA_TOKEN") or os.getenv("LIVE_TOKEN")
+    token = os.getenv("LIVE_TOKEN")
     if not token:
-        parser.error("set YMM_LIVE_DATA_TOKEN or LIVE_TOKEN before running")
+        parser.error("set LIVE_TOKEN before running")
 
     source = YmmLiveDataSource(token=token, mode=args.mode, instruments=args.instruments)
     count = 0
@@ -36,6 +32,7 @@ def main() -> None:
             source.stop()
 
     print(f"subscribing to: {', '.join(source.channels)}", flush=True)
+    
     try:
         source.run(display)
     except KeyboardInterrupt:

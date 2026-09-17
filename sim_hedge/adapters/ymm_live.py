@@ -21,8 +21,10 @@ class LiveFeedHealth:
     received_batches: int = 0
     received_messages: int = 0
     dropped_batches: int = 0
+    rejected_messages: int = 0
     data_unsafe: bool = False
-    last_error: str | None = None
+    last_status_error: str | None = None
+    last_processing_error: str | None = None
 
 
 class YmmLiveDataSource:
@@ -57,6 +59,7 @@ class YmmLiveDataSource:
         self._client: Any | None = None
         self._worker: Thread | None = None
         self._on_quote: Callable[[MarketQuote], None] | None = None
+        self._stop_requested = False
         self.health = LiveFeedHealth()
 
     @property
@@ -83,7 +86,7 @@ class YmmLiveDataSource:
             self._client.listen(tick_handler=self._on_ticks)
         except Exception as exc:
             self.health.data_unsafe = True
-            self.health.last_error = f"{type(exc).__name__}: {exc}"
+            self.health.last_status_error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
             self.health.state = "stopping"
@@ -99,6 +102,7 @@ class YmmLiveDataSource:
     def stop(self) -> None:
         """Cause the SDK's blocking ``listen`` call to return."""
 
+        self._stop_requested = True
         if self._client is not None:
             self._client.close()
 
@@ -112,14 +116,25 @@ class YmmLiveDataSource:
         except Full:
             self.health.dropped_batches += 1
             self.health.data_unsafe = True
-            self.health.last_error = "strategy queue overflowed"
+            self.health.last_status_error = "strategy queue overflowed"
 
     def _on_status(self, event: Any) -> None:
         component = getattr(event, "component", "")
         state = getattr(event, "state", "")
-        unsafe = (
+
+        # closing SDK are expected
+        if self._stop_requested and (
             (component == "hub" and state in {"disconnected", "reconnecting"})
-            or (
+            or (component == "session" and state == "closed")
+        ):
+            return
+        
+        unsafe = (
+            # Loss connection
+            (component == "hub" and state in {"disconnected", "reconnecting"})
+            or 
+            # Processing failures
+            (
                 component == "session"
                 and state in {
                     "slow_consumer",
@@ -128,11 +143,13 @@ class YmmLiveDataSource:
                     "closed",
                 }
             )
+            # Server failure
             or (component == "catalog" and state == "subscription_inactive")
         )
+
         if unsafe:
             self.health.data_unsafe = True
-            self.health.last_error = f"{component}/{state}"
+            self.health.last_status_error = f"{component}/{state}"
 
     def _consume(self) -> None:
         while True:
@@ -145,8 +162,9 @@ class YmmLiveDataSource:
                         quote = normalize_tick(message)
                         self._on_quote(quote)
                     except Exception as exc:
+                        self.health.rejected_messages += 1
                         self.health.data_unsafe = True
-                        self.health.last_error = f"{type(exc).__name__}: {exc}"
+                        self.health.last_processing_error = f"{type(exc).__name__}: {exc}"
             finally:
                 self._queue.task_done()
 
@@ -155,13 +173,13 @@ def normalize_tick(message: dict[str, Any], received_at: datetime | None = None)
     """Convert one FeedHub tick dictionary into the internal quote type."""
 
     instrument = str(message.get("order_book_id") or "")
-    observed_at = message.get("datetime")
-    trading_date = message.get("trading_date")
+    observed_at = _parse_datetime(message.get("datetime"))
+    trading_date = _parse_date(message.get("trading_date"))
     if not instrument:
         raise LiveMarketDataError("tick has no order_book_id")
-    if not isinstance(observed_at, datetime):
+    if observed_at is None:
         raise LiveMarketDataError(f"tick for {instrument} has no valid datetime")
-    if trading_date is not None and not isinstance(trading_date, date):
+    if message.get("trading_date") is not None and trading_date is None:
         raise LiveMarketDataError(f"tick for {instrument} has no valid trading_date")
 
     try:
@@ -185,6 +203,30 @@ def _first_positive(values: Any) -> float | None:
         return _positive_float(values[0])
     except (IndexError, KeyError, TypeError):
         return None
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, str)):
+        text = str(value).strip()
+        fmt = "%Y%m%d%H%M%S" if len(text) == 14 else "%Y%m%d%H%M%S%f"
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+    return None
+
+def _parse_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, (int, str)):
+        try:
+            return datetime.strptime(str(value).strip(), "%Y%m%d").date()
+        except ValueError:
+            pass
+    return None
 
 
 def _positive_float(value: Any) -> float | None:
