@@ -9,6 +9,9 @@ work happen on a separate consumer thread. A thread-safe `MarketState` keeps one
 latest quote per instrument and reports whether all required quotes are fresh.
 Normal startup loads the active option chain through Data SDK, closes that SDK,
 then subscribes through Live SDK to the underlying and every active option.
+During the run, a monitor reports coverage/readiness once per second and writes
+`outputs/market_state.json` atomically for diagnostics. Pricing will consume the
+in-memory `MarketState`, not this JSON file.
 
 ## Run
 
@@ -90,11 +93,13 @@ sim_hedge/
 │   │   ├── ymm_live.py        Live SDK connection and translation boundary
 │   │   └── ymm_reference.py   Data SDK contract-metadata boundary
 │   ├── domain.py         Domain values only
+│   ├── market_monitor.py Diagnostic status and atomic JSON projection
 │   ├── market_state.py   Latest quotes and market readiness
 │   ├── option_chain.py   Option-chain inspection logic
 │   └── ports.py          Interfaces required by the application
 ├── tests/
 │   ├── test_market_state.py
+│   ├── test_market_monitor.py
 │   ├── test_option_chain.py
 │   ├── test_ymm_reference.py
 │   └── test_ymm_live.py

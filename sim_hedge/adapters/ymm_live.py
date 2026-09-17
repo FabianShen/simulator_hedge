@@ -84,6 +84,9 @@ class YmmLiveDataSource:
             self._client.subscribe(self.channels)
             self.health.state = "running"
             self._client.listen(tick_handler=self._on_ticks)
+        except KeyboardInterrupt:
+            self._stop_requested = True
+            raise
         except Exception as exc:
             self.health.data_unsafe = True
             self.health.last_status_error = f"{type(exc).__name__}: {exc}"

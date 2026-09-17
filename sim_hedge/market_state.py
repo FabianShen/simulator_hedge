@@ -21,8 +21,8 @@ class MarketReadiness:
 class MarketState:
     """Keep one latest quote per required instrument."""
 
-    def __init__(self, required_instruments: Iterable[str]) -> None:
-        required = tuple(dict.fromkeys(required_instruments))
+    def __init__(self, instruments: Iterable[str]) -> None:
+        required = tuple(dict.fromkeys(instruments))
         if not required or any(not instrument for instrument in required):
             raise ValueError("at least one non-empty required instrument is needed")
 

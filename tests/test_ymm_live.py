@@ -38,6 +38,16 @@ class FakeClient:
         self.closed = True
 
 
+class InterruptingClient(FakeClient):
+    def listen(self, *, tick_handler) -> None:
+        raise KeyboardInterrupt
+
+    def close(self) -> None:
+        self.closed = True
+        if self.status_handler is not None:
+            self.status_handler(SimpleNamespace(component="session", state="closed"))
+
+
 class NormalizeTickTests(unittest.TestCase):
     def test_normalizes_a_live_tick(self) -> None:
         observed = datetime(2026, 9, 16, 10, 30)
@@ -165,6 +175,23 @@ class YmmLiveDataSourceTests(unittest.TestCase):
         self.assertTrue(sdk.closed)
         self.assertEqual(source.health.state, "stopped")
         self.assertTrue(source.health.data_unsafe)
+
+    def test_keyboard_interrupt_is_a_clean_shutdown(self) -> None:
+        sdk = FakeSdk()
+        client = InterruptingClient(())
+        source = YmmLiveDataSource(
+            token="secret",
+            instruments=["159915.XSHE"],
+            sdk=sdk,
+            client_factory=lambda: client,
+        )
+
+        with self.assertRaises(KeyboardInterrupt):
+            source.run(lambda quote: None)
+
+        self.assertFalse(source.health.data_unsafe)
+        self.assertIsNone(source.health.last_status_error)
+        self.assertEqual(source.health.state, "stopped")
 
 
 if __name__ == "__main__":

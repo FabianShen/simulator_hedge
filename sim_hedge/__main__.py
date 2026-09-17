@@ -7,6 +7,7 @@ import os
 from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
 from sim_hedge.domain import OptionContract
+from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
 from sim_hedge.option_chain import subscription, summarize
 
@@ -16,6 +17,11 @@ def main() -> None:
     parser.add_argument("underlying", nargs="?", default="159915.XSHE")
     parser.add_argument("--mode", choices=("lan", "TS"), default=os.getenv("LIVE_MODE", "lan"))
     parser.add_argument("--max-quotes", type=int, default=0, help="stop after N quotes; 0 no stop")
+    parser.add_argument(
+        "--snapshot",
+        default="outputs/market_state.json",
+        help="diagnostic JSON path; use an empty string to disable",
+    )
     parser.add_argument(
         "--check-options",
         metavar="UNDERLYING",
@@ -44,19 +50,23 @@ def main() -> None:
     market_state = MarketState([args.underlying])
     count = 0
 
-    def display(quote) -> None:
+    def on_quote(quote) -> None:
         nonlocal count
         if args.max_quotes > 0 and count >= args.max_quotes:
             return
         market_state.apply_quote(quote)
         count += 1
-        print(
-            f"{quote.observed_at.isoformat()} {quote.instrument} "
-            f"last={quote.last} bid={quote.bid} ask={quote.ask}",
-            flush=True,
-        )
         if args.max_quotes > 0 and count >= args.max_quotes:
             source.stop()
+
+    monitor = MarketMonitor(
+        market_state,
+        instruments,
+        lambda: source.health,
+        max_age=timedelta(seconds=5),
+        json_path=args.snapshot or None,
+        output=lambda message: print(message, flush=True),
+    )
 
     print(
         f"loaded {len(contracts)} option contracts across "
@@ -65,24 +75,26 @@ def main() -> None:
     )
     print(
         f"subscribing to {len(source.channels)} tick channels "
-        f"(1 underlying + {len(contracts)} options)",
+        f"({len(source.channels)-len(contracts)} underlying + {len(contracts)} options)",
         flush=True,
     )
     
+    monitor.start()
     try:
-        source.run(display)
+        source.run(on_quote)
     except KeyboardInterrupt:
         source.stop()
     except Exception as exc:
         raise SystemExit(f"live feed failed: {type(exc).__name__}: {exc}") from exc
     finally:
+        monitor.stop()
         print(f"feed health: {source.health}", flush=True)
         readiness = market_state.readiness(
             now=datetime.now(timezone.utc),
             max_age=timedelta(seconds=5),
             feed_unsafe=source.health.data_unsafe,
         )
-        print(f"market state: {readiness}", flush=True)
+        print(f"market state at shutdown: {readiness}", flush=True)
         print(f"latest quotes retained: {len(market_state.snapshot())}", flush=True)
 
 
