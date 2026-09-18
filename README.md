@@ -37,8 +37,12 @@ $env:LIVE_TOKEN = "your-live-token"
 $env:DATA_TOKEN = "your-data-token"
 .\.venv\Scripts\python -m sim_hedge 159915.XSHE --mode lan
 
+# Record one safe, complete request and replay it without live data:
+.\.venv\Scripts\python -m sim_hedge --record-pricing outputs\pricing-request.json
+.\.venv\Scripts\python -m pricing_engine outputs\pricing-request.json
+
 # Use the second maturity and three strike levels on each side of ATM:
-.\.venv\Scripts\python -m sim_hedge 159915.XSHE --expiry-index 1 --strike-wings 3
+.\.venv\Scripts\python -m sim_hedge 159915.XSHE --expiry 1 --strike-wings 3
 
 # Contract-metadata diagnostic only; does not start Live SDK:
 .\.venv\Scripts\python -m sim_hedge --check-options 159915.XSHE --mode lan

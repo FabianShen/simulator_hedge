@@ -36,6 +36,7 @@ class SabrPricingRequest:
     dividend_yield: float
     options: tuple[OptionObservation, ...]
     beta: float = 0.5
+    minimum_strikes: int = 3
 
     def __post_init__(self) -> None:
         values = (self.spot, self.time_to_expiry, self.rate, self.dividend_yield)
@@ -47,6 +48,8 @@ class SabrPricingRequest:
             raise ValueError("at least one option observation is required")
         if not 0 <= self.beta <= 1:
             raise ValueError("beta must be between zero and one")
+        if self.minimum_strikes < 3:
+            raise ValueError("minimum_strikes must be at least three")
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,7 @@ class SabrPricingEngine:
             request.time_to_expiry,
             calibration_points,
             beta=request.beta,
+            minimum_strikes=request.minimum_strikes,
         )
         results = tuple(
             self._price_option(

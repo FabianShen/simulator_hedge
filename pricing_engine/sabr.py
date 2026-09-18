@@ -88,6 +88,7 @@ def calibrate_sabr(
     observations: list[tuple[float, float]],
     *,
     beta: float = 0.5,
+    minimum_strikes: int = 3,
 ) -> SabrCalibration:
     """Fit alpha/nu/rho to strike-IV observations without SciPy.
 
@@ -100,6 +101,8 @@ def calibrate_sabr(
         raise ValueError("forward and time_to_expiry must be positive")
     if not 0 <= beta <= 1:
         raise ValueError("beta must be between zero and one")
+    if minimum_strikes < 3:
+        raise ValueError("minimum_strikes must be at least three")
 
     by_strike: dict[float, list[float]] = {}
     for strike, volatility in observations:
@@ -109,8 +112,8 @@ def calibrate_sabr(
         (strike, median(volatilities))
         for strike, volatilities in by_strike.items()
     )
-    if len(points) < 3:
-        raise ValueError("at least three valid unique strikes are required")
+    if len(points) < minimum_strikes:
+        raise ValueError(f"at least {minimum_strikes} valid unique strikes are required")
 
     atm_strike, atm_volatility = min(
         points, key=lambda point: abs(point[0] - forward)

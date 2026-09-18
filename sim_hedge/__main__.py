@@ -10,6 +10,12 @@ from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
 from sim_hedge.option_chain import subscription, summarize
+from sim_hedge.pricing_request import (
+    PricingRequestError,
+    PricingRequestPolicy,
+    build_pricing_request,
+    record_pricing_request,
+)
 from sim_hedge.strategy_universe import StrategyUniverse, select_strategy_universe
 
 
@@ -37,6 +43,21 @@ def main() -> None:
         help="diagnostic JSON path; use an empty string to disable",
     )
     parser.add_argument(
+        "--record-pricing",
+        metavar="PATH",
+        help="record the first ready pricing request for offline replay",
+    )
+    parser.add_argument("--risk-free-rate", type=float, default=0.015)
+    parser.add_argument("--dividend-yield", type=float, default=0.0)
+    parser.add_argument("--sabr-beta", type=float, default=0.5)
+    parser.add_argument(
+        "--expiry-time",
+        type=parse_clock_time,
+        default=parse_clock_time("15:00"),
+        metavar="HH:MM",
+        help="exchange-local expiry time; verify for the traded contract",
+    )
+    parser.add_argument(
         "--check-options",
         metavar="UNDERLYING",
         help="print active option metadata without live",
@@ -46,6 +67,8 @@ def main() -> None:
         parser.error("--expiry must not be negative")
     if args.strike_wings < 0:
         parser.error("--strike-wings must not be negative")
+    if not 0 <= args.sabr_beta <= 1:
+        parser.error("--sabr-beta must be between zero and one")
     # Review option chain without activate live feed
     if args.check_options:
         contracts = load_option_chain(args.check_options, args.mode, parser)
@@ -67,14 +90,23 @@ def main() -> None:
     market_state = MarketState([args.underlying])
     count = 0
     universe: StrategyUniverse | None = None
+    pricing_recorded = False
+    pricing_record_error = "strategy universe not selected"
+    pricing_policy = PricingRequestPolicy(
+        risk_free_rate=args.risk_free_rate,
+        dividend_yield=args.dividend_yield,
+        beta=args.sabr_beta,
+        expiry_time=args.expiry_time,
+    )
 
     def on_quote(quote) -> None:
-        nonlocal count, universe
+        nonlocal count, universe, pricing_recorded, pricing_record_error
         if args.max_quotes > 0 and count >= args.max_quotes:
             return
         market_state.apply_quote(quote)
         if quote.instrument == args.underlying and universe is None:
             spot = quote_price(quote)
+            # this selects the available positions
             universe = select_strategy_universe(
                 contracts,
                 spot,
@@ -89,6 +121,27 @@ def main() -> None:
                 f"options={len(universe.contracts)}",
                 flush=True,
             )
+        if args.record_pricing and universe is not None and not pricing_recorded:
+            as_of = datetime.now(timezone.utc)
+            try:
+                request = build_pricing_request(
+                    request_id=f"live-{as_of.strftime('%Y%m%dT%H%M%S.%fZ')}",
+                    as_of=as_of,
+                    market_state=market_state,
+                    universe=universe,
+                    policy=pricing_policy,
+                    feed_unsafe=source.health.data_unsafe,
+                )
+            except PricingRequestError as exc:
+                pricing_record_error = str(exc)
+            else:
+                record_pricing_request(args.record_pricing, request)
+                pricing_recorded = True
+                pricing_record_error = ""
+                print(
+                    f"recorded pricing request: {args.record_pricing}",
+                    flush=True,
+                )
         count += 1
         if args.max_quotes > 0 and count >= args.max_quotes:
             source.stop()
@@ -130,6 +183,11 @@ def main() -> None:
         )
         print(f"market state at shutdown: {readiness}", flush=True)
         print(f"latest quotes retained: {len(market_state.snapshot())}", flush=True)
+        if args.record_pricing and not pricing_recorded:
+            print(
+                f"pricing request not recorded: {pricing_record_error}",
+                flush=True,
+            )
 
 
 def load_option_chain(
@@ -160,6 +218,13 @@ def quote_price(quote) -> float:
     if quote.ask is not None:
         return quote.ask
     raise ValueError(f"quote for {quote.instrument} contains no usable price")
+
+
+def parse_clock_time(value: str):
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("time must use HH:MM") from exc
 
 
 def print_option_chain(underlying: str, contracts: list[OptionContract]) -> None:
