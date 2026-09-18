@@ -100,6 +100,20 @@ The watcher applies absolute `POSITION_UPDATED` and `POSITION_CLOSED` events in
 unsynchronized. Other event types are not interpreted by this position-only
 increment.
 
+The initial Alpha target is built separately from both the strategy universe and
+the broker portfolio. `build_short_otm_alpha_plan()` selects the maximum balanced
+set of OTM calls and puts from the nearest maturity, excludes ATM, and assigns
+one common short quantity to every option. The quantity uses 30% of captured
+initial cash as a premium-equivalent budget:
+
+```text
+one basket = sum(reference price * contract multiplier) for every selected leg
+contracts per option = floor(30% * initial cash / one basket)
+```
+
+This is an offline sizing rule, not a short-option margin calculation, and it
+does not submit orders or modify the actual `PortfolioState`.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,
