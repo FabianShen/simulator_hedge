@@ -15,6 +15,7 @@ class OrderIntent:
     client_order_id: str
     account_id: str
     strategy: str
+    exchange_id: str
     instrument: str
     quantity: int
     offset: str
@@ -23,9 +24,15 @@ class OrderIntent:
     created_at: datetime
 
     def __post_init__(self) -> None:
-        if not self.client_order_id or not self.account_id or not self.instrument:
+        if (
+            not self.client_order_id
+            or not self.account_id
+            or not self.exchange_id
+            or not self.instrument
+        ):
             raise ValueError(
-                "client_order_id, account_id, and instrument must not be empty"
+                "client_order_id, account_id, exchange_id, and instrument "
+                "must not be empty"
             )
         if self.strategy not in STRATEGIES:
             raise ValueError("order strategy must be ALPHA or BETA")
@@ -53,6 +60,7 @@ class OrderRegistry:
     revision: int
     intents: Mapping[str, OrderIntent]
     broker_orders: Mapping[str, str]
+    unknown_client_order_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.account_id:
@@ -70,6 +78,13 @@ class OrderRegistry:
             raise ValueError("one client_order_id cannot bind multiple broker orders")
         if not set(clients) <= set(self.intents):
             raise ValueError("broker order binding references an unknown intent")
+        unknown = set(self.unknown_client_order_ids)
+        if len(unknown) != len(self.unknown_client_order_ids):
+            raise ValueError("unknown submission IDs must be unique")
+        if not unknown <= set(self.intents):
+            raise ValueError("unknown submission references an unknown intent")
+        if unknown & set(clients):
+            raise ValueError("a bound order cannot have unknown submission state")
 
     @property
     def order_strategies(self) -> dict[str, str]:
@@ -80,7 +95,7 @@ class OrderRegistry:
 
 
 def empty_order_registry(account_id: str) -> OrderRegistry:
-    return OrderRegistry(account_id, 0, {}, {})
+    return OrderRegistry(account_id, 0, {}, {}, ())
 
 
 def register_order_intent(
@@ -104,6 +119,7 @@ def register_order_intent(
         registry.revision + 1,
         intents,
         dict(registry.broker_orders),
+        registry.unknown_client_order_ids,
     )
 
 
@@ -135,9 +151,35 @@ def bind_broker_order(
         )
     bindings = dict(registry.broker_orders)
     bindings[order_id] = client_order_id
+    unknown = tuple(
+        value
+        for value in registry.unknown_client_order_ids
+        if value != client_order_id
+    )
     return OrderRegistry(
         registry.account_id,
         registry.revision + 1,
         dict(registry.intents),
         bindings,
+        unknown,
+    )
+
+
+def mark_submission_unknown(
+    registry: OrderRegistry, client_order_id: str
+) -> OrderRegistry:
+    """Block blind retries when a submission outcome cannot be determined."""
+
+    if client_order_id not in registry.intents:
+        raise ValueError(f"unknown client_order_id: {client_order_id}")
+    if client_order_id in registry.broker_orders.values():
+        raise ValueError("a bound order cannot be marked unknown")
+    if client_order_id in registry.unknown_client_order_ids:
+        return registry
+    return OrderRegistry(
+        registry.account_id,
+        registry.revision + 1,
+        dict(registry.intents),
+        dict(registry.broker_orders),
+        (*registry.unknown_client_order_ids, client_order_id),
     )

@@ -99,6 +99,7 @@ def build_alpha_order_dry_run(
             client_order_id=client_order_id,
             account_id=account_id,
             strategy="ALPHA",
+            exchange_id=exchange_id,
             instrument=instrument,
             quantity=quantity,
             offset="OPEN",

@@ -20,6 +20,7 @@ from hedge_engine.orders import (
     OrderRegistry,
     bind_broker_order,
     empty_order_registry,
+    mark_submission_unknown,
     register_order_intent,
 )
 
@@ -40,6 +41,7 @@ __all__ = [
     "apply_confirmed_fills",
     "empty_ledger",
     "empty_order_registry",
+    "mark_submission_unknown",
     "integerize_delta_gamma_hedge",
     "register_order_intent",
 ]

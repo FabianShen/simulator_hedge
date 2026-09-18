@@ -6,6 +6,7 @@ from hedge_engine import (
     OrderIntent,
     bind_broker_order,
     empty_order_registry,
+    mark_submission_unknown,
     register_order_intent,
 )
 
@@ -15,6 +16,7 @@ def intent(*, quantity: int = -1) -> OrderIntent:
         client_order_id="alpha-001",
         account_id="A1",
         strategy="ALPHA",
+        exchange_id="SZSE",
         instrument="OPTION",
         quantity=quantity,
         offset="OPEN",
@@ -70,6 +72,17 @@ class OrderRegistryTests(unittest.TestCase):
             bind_broker_order(
                 bound, client_order_id="alpha-001", order_id="O-2"
             )
+
+    def test_unknown_submission_blocks_state_until_order_is_recovered(self) -> None:
+        registered = register_order_intent(empty_order_registry("A1"), intent())
+        unknown = mark_submission_unknown(registered, "alpha-001")
+
+        self.assertEqual(unknown.unknown_client_order_ids, ("alpha-001",))
+        recovered = bind_broker_order(
+            unknown, client_order_id="alpha-001", order_id="O-1"
+        )
+        self.assertEqual(recovered.unknown_client_order_ids, ())
+        self.assertEqual(recovered.order_strategies, {"O-1": "ALPHA"})
 
 
 if __name__ == "__main__":

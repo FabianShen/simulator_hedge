@@ -147,6 +147,30 @@ Generate registered Alpha order intents from saved data without submitting:
 The saved mid is rounded to the nearest valid price tick for inspection only.
 The output explicitly says `submission_allowed: false` and `orders_submitted: 0`;
 execution must rebuild or validate prices against a fresh live market snapshot.
+For this workflow, record a fresh snapshot with
+`--record-pricing PATH --stop-after-recording`, then immediately rebuild the
+Alpha plan and dry-run.
+
+The following command performs real simulated-account submissions. Run it
+yourself only after regenerating and reviewing the three input files. The value
+of `--confirm-submit` must exactly match the account ID:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_submit `
+  outputs\live-pricing-request.json `
+  outputs\alpha_order_dry_run.json `
+  outputs\order_registry.json `
+  --confirm-submit ETO202609151523232103 `
+  --max-total-contracts 4
+```
+
+Before the first POST it independently checks that the pricing snapshot is at
+most 10 seconds old, the account and risk states are `NORMAL`, and the broker
+has no positions or active orders. It submits sequentially, saves each returned
+`order_id` before continuing, and stops on the first rejection. A timeout,
+connection loss, `5xx`, invalid response, or missing `order_id` is recorded as
+`SUBMISSION_UNKNOWN`; that client ID cannot be submitted again until the order
+is recovered through a read-only query and bound to the registry.
 
 Persist order ownership before any future submission:
 

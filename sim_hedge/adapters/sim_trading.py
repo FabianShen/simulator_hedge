@@ -25,6 +25,10 @@ class SimTradingError(RuntimeError):
     pass
 
 
+class SimTradingUnknownOutcomeError(SimTradingError):
+    """The request may have reached the simulator and must not be blindly retried."""
+
+
 JsonRequest = Callable[[str, str, Mapping[str, str], Mapping[str, Any] | None], Any]
 
 
@@ -113,6 +117,39 @@ class SimTradingPortfolioSource:
         raw = self._get(f"/api/trades/page?{urlencode(query)}")
         return normalize_confirmed_trade_page(raw, account_id, order_strategies)
 
+    def submit_etf_option_order(
+        self, request: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """Submit one already-validated ETF-option request."""
+
+        if not self._access_token:
+            raise SimTradingError("not authenticated; provide a token or call login()")
+        try:
+            payload = _unwrap(
+                self._request_json(
+                    "POST",
+                    f"{self._base_url}/api/etf-options/orders",
+                    {
+                        "Authorization": f"Bearer {self._access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    request,
+                )
+            )
+        except (TimeoutError, URLError) as exc:
+            raise SimTradingUnknownOutcomeError(
+                f"ETF-option submission outcome is unknown: {exc}"
+            ) from exc
+        if not isinstance(payload, Mapping):
+            raise SimTradingUnknownOutcomeError(
+                "ETF-option order response is not an object; outcome is unknown"
+            )
+        if not payload.get("order_id"):
+            raise SimTradingUnknownOutcomeError(
+                "ETF-option order response has no order_id; outcome is unknown"
+            )
+        return payload
+
     def websocket_ticket(self) -> str:
         """Create the short-lived, single-use ticket required by the WS API."""
 
@@ -155,10 +192,26 @@ class SimTradingPortfolioSource:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
+            if (
+                method == "POST"
+                and url.endswith("/api/etf-options/orders")
+                and exc.code >= 500
+            ):
+                raise SimTradingUnknownOutcomeError(
+                    f"simulator HTTP {exc.code}; submission outcome may be unknown: {detail}"
+                ) from exc
             raise SimTradingError(f"simulator HTTP {exc.code}: {detail}") from exc
         except (URLError, TimeoutError) as exc:
+            if method == "POST" and url.endswith("/api/etf-options/orders"):
+                raise SimTradingUnknownOutcomeError(
+                    f"simulator connection failed; outcome may be unknown: {exc}"
+                ) from exc
             raise SimTradingError(f"simulator connection failed: {exc}") from exc
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            if method == "POST" and url.endswith("/api/etf-options/orders"):
+                raise SimTradingUnknownOutcomeError(
+                    "simulator returned invalid JSON; submission outcome may be unknown"
+                ) from exc
             raise SimTradingError("simulator returned invalid JSON") from exc
 
 

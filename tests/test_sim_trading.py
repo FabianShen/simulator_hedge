@@ -6,6 +6,7 @@ import unittest
 from sim_hedge.adapters.sim_trading import (
     SimTradingError,
     SimTradingPortfolioSource,
+    SimTradingUnknownOutcomeError,
     normalize_confirmed_trade,
     normalize_portfolio_snapshot,
 )
@@ -181,6 +182,39 @@ class SimTradingSourceTests(unittest.TestCase):
     def test_rejects_trade_without_saved_order_ownership(self) -> None:
         with self.assertRaisesRegex(SimTradingError, "no Alpha/Beta ownership"):
             normalize_confirmed_trade(trade(), "ETF-OPTION-1", {})
+
+    def test_submits_exact_etf_option_request_and_requires_order_id(self) -> None:
+        calls = []
+
+        def request(method, url, headers, body):
+            calls.append((method, url, headers, body))
+            return {"order_id": "O-1", "status": "ACCEPTED"}
+
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="secret-token",
+            request_json=request,
+        )
+        body = {"client_order_id": "C-1", "symbol": "9001"}
+
+        response = source.submit_etf_option_order(body)
+
+        self.assertEqual(response["order_id"], "O-1")
+        self.assertEqual(calls[0][0], "POST")
+        self.assertEqual(
+            calls[0][1], "http://simulator.test/api/etf-options/orders"
+        )
+        self.assertEqual(calls[0][3], body)
+
+    def test_submission_timeout_is_an_unknown_outcome(self) -> None:
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="secret-token",
+            request_json=lambda *args: (_ for _ in ()).throw(TimeoutError("late")),
+        )
+
+        with self.assertRaises(SimTradingUnknownOutcomeError):
+            source.submit_etf_option_order({"client_order_id": "C-1"})
 
 
 if __name__ == "__main__":

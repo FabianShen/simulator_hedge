@@ -17,6 +17,7 @@ class OrderRegistrySerializationTests(unittest.TestCase):
             client_order_id="alpha-001",
             account_id="A1",
             strategy="ALPHA",
+            exchange_id="SZSE",
             instrument="OPTION",
             quantity=-1,
             offset="OPEN",

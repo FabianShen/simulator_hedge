@@ -51,6 +51,11 @@ def main() -> None:
         metavar="PATH",
         help="record the first ready pricing request for offline replay",
     )
+    parser.add_argument(
+        "--stop-after-recording",
+        action="store_true",
+        help="stop the live feed immediately after --record-pricing succeeds",
+    )
     parser.add_argument("--risk-free-rate", type=float, default=0.015)
     parser.add_argument("--dividend-yield", type=float, default=0.0)
     parser.add_argument("--sabr-beta", type=float, default=0.5)
@@ -88,6 +93,8 @@ def main() -> None:
         parser.error("--pricing-timeout must be positive")
     if args.pricing_max_age <= 0:
         parser.error("--pricing-max-age must be positive")
+    if args.stop_after_recording and not args.record_pricing:
+        parser.error("--stop-after-recording requires --record-pricing")
     # Review option chain without activate live feed
     if args.check_options:
         contracts = load_option_chain(args.check_options, args.mode, parser)
@@ -209,6 +216,8 @@ def main() -> None:
                     f"recorded pricing request: {args.record_pricing}",
                     flush=True,
                 )
+                if args.stop_after_recording:
+                    source.stop()
         if pricing_worker is not None:
             pricing_worker.request_update()
         count += 1

@@ -63,6 +63,7 @@ def intent_from_payload(payload: Mapping[str, Any]) -> OrderIntent:
         client_order_id=str(payload.get("client_order_id") or ""),
         account_id=str(payload.get("account_id") or ""),
         strategy=str(payload.get("strategy") or "").upper(),
+        exchange_id=str(payload.get("exchange_id") or ""),
         instrument=str(payload.get("instrument") or ""),
         quantity=_integer(payload.get("quantity"), "order quantity"),
         offset=str(payload.get("offset") or "").upper(),
@@ -83,6 +84,7 @@ def registry_to_payload(registry: OrderRegistry) -> dict[str, Any]:
             client_id: {
                 "account_id": intent.account_id,
                 "strategy": intent.strategy,
+                "exchange_id": intent.exchange_id,
                 "instrument": intent.instrument,
                 "quantity": intent.quantity,
                 "offset": intent.offset,
@@ -95,6 +97,7 @@ def registry_to_payload(registry: OrderRegistry) -> dict[str, Any]:
             for client_id, intent in sorted(registry.intents.items())
         },
         "broker_orders": dict(sorted(registry.broker_orders.items())),
+        "unknown_client_order_ids": list(registry.unknown_client_order_ids),
     }
 
 
@@ -114,11 +117,15 @@ def registry_from_payload(payload: Mapping[str, Any]) -> OrderRegistry:
         for client_id, raw in raw_intents.items()
     }
     raw_bindings = _object(payload.get("broker_orders"), "broker orders")
+    raw_unknown = payload.get("unknown_client_order_ids", [])
+    if not isinstance(raw_unknown, list):
+        raise ValueError("unknown_client_order_ids must be a list")
     return OrderRegistry(
         account_id=account_id,
         revision=_integer(payload.get("revision"), "registry revision"),
         intents=intents,
         broker_orders={str(key): str(value) for key, value in raw_bindings.items()},
+        unknown_client_order_ids=tuple(str(value) for value in raw_unknown),
     )
 
 
