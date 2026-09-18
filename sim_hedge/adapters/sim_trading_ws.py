@@ -12,6 +12,7 @@ import websocket
 from sim_hedge.adapters.sim_trading import (
     SimTradingError,
     SimTradingPortfolioSource,
+    normalize_position,
     normalize_portfolio_snapshot,
 )
 from sim_hedge.portfolio import PortfolioSnapshot
@@ -82,6 +83,79 @@ class SimTradingSnapshotStream:
             raise SimTradingError("timed out waiting for WebSocket SNAPSHOT") from exc
         finally:
             socket.close()
+
+    def watch_positions(
+        self,
+        state: PortfolioState,
+        on_change: Callable[[str, PortfolioSnapshot], None] | None = None,
+    ) -> None:
+        """Continuously apply absolute position events until stopped or disconnected."""
+
+        ticket = quote(self._source.websocket_ticket(), safe="")
+        separator = "&" if "?" in self._ws_url else "?"
+        socket = self._connect(
+            f"{self._ws_url}{separator}ticket={ticket}", timeout=self._timeout
+        )
+        try:
+            socket.send(
+                json.dumps(
+                    {"action": "subscribe", "account_ids": [self._account_id]}
+                )
+            )
+            socket.settimeout(1.0)
+            first_business_event = True
+            while True:
+                try:
+                    message = socket.recv()
+                except websocket.WebSocketTimeoutException:
+                    continue
+                event = _event(message)
+                event_type = event.get("event_type")
+                if event_type == "HEARTBEAT":
+                    socket.send(json.dumps({"action": "pong"}))
+                    continue
+                if event_type in {"ERROR", "AUTH_EXPIRED", "RESYNC_REQUIRED"}:
+                    raise SimTradingError(f"WebSocket stream stopped: {event_type}")
+                if first_business_event:
+                    if event_type != "SNAPSHOT":
+                        raise SimTradingError(
+                            "first WebSocket business event was not SNAPSHOT"
+                        )
+                    snapshot = normalize_portfolio_snapshot(event, self._account_id)
+                    state.replace(snapshot, synchronized=True)
+                    first_business_event = False
+                    if on_change is not None:
+                        on_change("SNAPSHOT", snapshot)
+                    continue
+                if event.get("account_id") not in (None, self._account_id):
+                    raise SimTradingError("received event for a different account")
+                changed = self._apply_position_event(state, event)
+                if changed and on_change is not None:
+                    snapshot = state.snapshot()
+                    if snapshot is not None:
+                        on_change(str(event_type), snapshot)
+        finally:
+            state.mark_unsynchronized()
+            socket.close()
+
+    def _apply_position_event(
+        self, state: PortfolioState, event: Mapping[str, Any]
+    ) -> bool:
+        event_type = event.get("event_type")
+        version = event.get("business_version")
+        business_version = None if version is None else str(version)
+        if event_type == "POSITION_UPDATED":
+            payload = event.get("payload")
+            if not isinstance(payload, Mapping):
+                raise SimTradingError("POSITION_UPDATED payload is not an object")
+            position = normalize_position(payload, self._account_id)
+            return state.upsert_position(position, business_version)
+        if event_type == "POSITION_CLOSED":
+            position_id = event.get("entity_id")
+            if not position_id:
+                raise SimTradingError("POSITION_CLOSED has no entity_id")
+            return state.remove_position(str(position_id), business_version)
+        return False
 
 
 def _event(message: Any) -> Mapping[str, Any]:

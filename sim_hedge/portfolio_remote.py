@@ -30,6 +30,11 @@ def main() -> None:
         help="list accessible accounts instead of loading a portfolio",
     )
     parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="keep applying absolute WebSocket position events until Ctrl+C",
+    )
+    parser.add_argument(
         "--output",
         metavar="PATH",
         help="optionally write normalized diagnostics as JSON",
@@ -39,6 +44,8 @@ def main() -> None:
         parser.error("set SIM_REST_BASE_URL or pass --base-url")
     if not args.list_accounts and not args.account_id:
         parser.error("set SIM_ACCOUNT_ID or pass --account-id")
+    if args.watch and not args.ws_url:
+        parser.error("--watch requires SIM_WS_URL or --ws-url")
 
     source = SimTradingPortfolioSource(
         args.base_url,
@@ -67,10 +74,24 @@ def main() -> None:
     state.replace(snapshot)
     _print_summary("REST", snapshot, state.revision)
     if args.ws_url:
-        snapshot = SimTradingSnapshotStream(
-            source, args.ws_url, args.account_id
-        ).replace_from_first_snapshot(state)
-        _print_summary("WebSocket", snapshot, state.revision)
+        stream = SimTradingSnapshotStream(source, args.ws_url, args.account_id)
+        if args.watch:
+            try:
+                stream.watch_positions(
+                    state,
+                    lambda event, current: _print_summary(
+                        f"WebSocket {event}", current, state.revision
+                    ),
+                )
+            except KeyboardInterrupt:
+                print(
+                    f"portfolio watch stopped synchronized={state.synchronized} "
+                    f"revision={state.revision}"
+                )
+            snapshot = state.snapshot() or snapshot
+        else:
+            snapshot = stream.replace_from_first_snapshot(state)
+            _print_summary("WebSocket", snapshot, state.revision)
     for position in snapshot.positions:
         print(
             f"position {position.instrument} {position.direction} "

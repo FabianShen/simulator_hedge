@@ -190,7 +190,7 @@ def normalize_portfolio_snapshot(raw: Any, account_id: str) -> PortfolioSnapshot
 
     positions_raw = _snapshot_list(entry.get("positions"), "positions")
     positions = tuple(
-        _position(item, account.account_id)
+        normalize_position(item, account.account_id)
         for item in positions_raw
     )
 
@@ -212,7 +212,11 @@ def normalize_portfolio_snapshot(raw: Any, account_id: str) -> PortfolioSnapshot
     )
 
 
-def _position(raw: Mapping[str, Any], account_id: str) -> PositionSnapshot:
+def normalize_position(
+    raw: Mapping[str, Any], account_id: str
+) -> PositionSnapshot:
+    """Normalize one absolute position from a snapshot or position event."""
+
     # The trading-snapshot endpoint returns each row as
     # {"position": <absolute position>, "pnl": <realtime valuation>}.
     wrapped = raw.get("position")

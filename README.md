@@ -88,6 +88,18 @@ event to be `SNAPSHOT`, replaces the state as revision 2, and exits. Individual
 incremental events are intentionally not applied until their real payloads have
 been observed.
 
+After snapshot bootstrap has been verified, keep the position stream running:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote --watch `
+  --output outputs\portfolio_state.json
+```
+
+The watcher applies absolute `POSITION_UPDATED` and `POSITION_CLOSED` events in
+`business_version` order. On disconnect or Ctrl+C, the in-memory state is marked
+unsynchronized. Other event types are not interpreted by this position-only
+increment.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,
