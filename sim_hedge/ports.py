@@ -5,6 +5,7 @@ from typing import Any, Mapping, Protocol
 from datetime import date
 
 from sim_hedge.domain import MarketQuote, OptionContract
+from sim_hedge.portfolio import PortfolioSnapshot
 from sim_hedge.pricing_types import PricingBatch, PricingServiceHealth
 
 
@@ -43,3 +44,10 @@ class PricingClient(Protocol):
 
     def close(self) -> None:
         """Release transport resources."""
+
+
+class PortfolioSource(Protocol):
+    """Read-only authoritative portfolio snapshot source."""
+
+    def load(self, account_id: str) -> PortfolioSnapshot:
+        """Load one absolute account snapshot suitable for state replacement."""

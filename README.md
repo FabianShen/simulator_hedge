@@ -56,6 +56,31 @@ updates, permits one RPC at a time, retains the latest valid result, and rejects
 responses whose input snapshot has exceeded the freshness limit. Continuous
 pricing is disabled when `--pricing-target` is omitted.
 
+Portfolio state comes from the simulated-trading system, not from the market
+feed. The first read-only boundary fetches the authoritative absolute snapshot
+from `GET /api/accounts/{account_id}/trading-snapshot`, converts monetary and
+quantity values to `Decimal`, and replaces the in-memory `PortfolioState` in one
+operation. It does not expose any order or account-mutating operation.
+
+Inspect accessible accounts and a normalized portfolio without live market data:
+
+```powershell
+$env:SIM_REST_BASE_URL = "http://your-simulator:8000"
+$env:SIM_USERNAME = "your-user"
+$env:SIM_PASSWORD = "your-password"
+
+.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote --list-accounts
+$env:SIM_ACCOUNT_ID = "your-etf-option-account-id"
+.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote `
+  --output outputs\portfolio_state.json
+```
+
+`SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
+option account and its linked stock/cash settlement account form one logical
+portfolio; the adapter also provides the read-only settlement-account lookup,
+but combining both accounts belongs in the next increment. JSON output is for
+inspection/replay only. Pricing and hedging will read the in-memory state.
+
 ## Run
 
 ```powershell

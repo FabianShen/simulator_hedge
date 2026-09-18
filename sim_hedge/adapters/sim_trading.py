@@ -1,0 +1,332 @@
+"""Read-only adapter for the simulated-trading REST API."""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal, InvalidOperation
+import json
+from typing import Any, Callable, Mapping
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, build_opener, HTTPCookieProcessor
+import http.cookiejar
+
+from sim_hedge.portfolio import (
+    AccountSnapshot,
+    ActiveOrderSnapshot,
+    PortfolioSnapshot,
+    PositionSnapshot,
+)
+
+
+class SimTradingError(RuntimeError):
+    pass
+
+
+JsonRequest = Callable[[str, str, Mapping[str, str], Mapping[str, Any] | None], Any]
+
+
+class SimTradingPortfolioSource:
+    """Fetch account snapshots only; this class deliberately has no order methods."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        access_token: str | None = None,
+        timeout: float = 10.0,
+        request_json: JsonRequest | None = None,
+    ) -> None:
+        if not base_url:
+            raise ValueError("base_url must not be empty")
+        self._base_url = base_url.rstrip("/")
+        self._access_token = access_token
+        self._timeout = timeout
+        self._opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self._request_json = request_json or self._http_json
+
+    def login(self, username: str, password: str) -> None:
+        if not username or not password:
+            raise ValueError("username and password must not be empty")
+        payload = self._request_json(
+            "POST",
+            f"{self._base_url}/api/auth/login",
+            {"Content-Type": "application/json"},
+            {"username": username, "password": password},
+        )
+        data = _unwrap(payload)
+        token = data.get("access_token") if isinstance(data, Mapping) else None
+        if not token:
+            raise SimTradingError("login response did not contain access_token")
+        self._access_token = str(token)
+
+    def list_accounts(self) -> tuple[Mapping[str, Any], ...]:
+        payload = _unwrap(self._get("/api/accounts"))
+        if isinstance(payload, Mapping):
+            payload = payload.get("items") or payload.get("accounts") or []
+        if not isinstance(payload, list):
+            raise SimTradingError("accounts response is not a list")
+        return tuple(item for item in payload if isinstance(item, Mapping))
+
+    def load(self, account_id: str) -> PortfolioSnapshot:
+        if not account_id:
+            raise ValueError("account_id must not be empty")
+        raw = self._get(f"/api/accounts/{account_id}/trading-snapshot")
+        return normalize_portfolio_snapshot(raw, account_id)
+
+    def settlement_account(self, option_account_id: str) -> Mapping[str, Any]:
+        payload = _unwrap(
+            self._get(
+                f"/api/etf-options/accounts/{option_account_id}/settlement-account"
+            )
+        )
+        if not isinstance(payload, Mapping):
+            raise SimTradingError("settlement-account response is not an object")
+        return payload
+
+    def _get(self, path: str) -> Any:
+        if not self._access_token:
+            raise SimTradingError("not authenticated; provide a token or call login()")
+        return self._request_json(
+            "GET",
+            f"{self._base_url}{path}",
+            {"Authorization": f"Bearer {self._access_token}"},
+            None,
+        )
+
+    def _http_json(
+        self,
+        method: str,
+        url: str,
+        headers: Mapping[str, str],
+        body: Mapping[str, Any] | None,
+    ) -> Any:
+        encoded = None if body is None else json.dumps(body).encode("utf-8")
+        request = Request(url, data=encoded, headers=dict(headers), method=method)
+        try:
+            with self._opener.open(request, timeout=self._timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise SimTradingError(f"simulator HTTP {exc.code}: {detail}") from exc
+        except (URLError, TimeoutError) as exc:
+            raise SimTradingError(f"simulator connection failed: {exc}") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SimTradingError("simulator returned invalid JSON") from exc
+
+
+def normalize_portfolio_snapshot(raw: Any, account_id: str) -> PortfolioSnapshot:
+    """Normalize REST or WebSocket SNAPSHOT layouts into one stable model."""
+
+    payload = _unwrap(raw)
+    if not isinstance(payload, Mapping):
+        raise SimTradingError("trading snapshot is not an object")
+    if payload.get("event_type") == "SNAPSHOT" and isinstance(
+        payload.get("payload"), Mapping
+    ):
+        envelope = payload
+        payload = payload["payload"]
+        if "business_version" not in payload and envelope.get("business_version"):
+            payload = {
+                **payload,
+                "business_version": envelope["business_version"],
+            }
+
+    entry: Mapping[str, Any] = payload
+    accounts = payload.get("accounts")
+    if isinstance(accounts, list):
+        candidates = [item for item in accounts if isinstance(item, Mapping)]
+        entry = next(
+            (item for item in candidates if _entry_account_id(item) == str(account_id)),
+            candidates[0] if len(candidates) == 1 else {},
+        )
+        if not entry:
+            raise SimTradingError(f"snapshot does not contain account {account_id}")
+
+    account_raw = entry.get("account")
+    if not isinstance(account_raw, Mapping):
+        account_raw = entry
+    actual_id = _first(account_raw, "account_id", "id") or account_id
+    if str(actual_id) != str(account_id):
+        raise SimTradingError(
+            f"snapshot account mismatch: expected {account_id}, received {actual_id}"
+        )
+
+    valuation = entry.get("valuation")
+    if not isinstance(valuation, Mapping):
+        valuation = {}
+    account = AccountSnapshot(
+        account_id=str(actual_id),
+        account_type=str(_first(account_raw, "account_type", "type") or ""),
+        status=str(account_raw.get("status") or ""),
+        trading_day=_date(account_raw.get("trading_day")),
+        risk_state=_optional_text(
+            _first(account_raw, "risk_state") or valuation.get("risk_state")
+        ),
+        cash_balance=_optional_decimal(account_raw.get("cash_balance")),
+        available_cash=_optional_decimal(account_raw.get("available_cash")),
+        equity=_optional_decimal(account_raw.get("equity")),
+        used_margin=_optional_decimal(account_raw.get("used_margin")),
+        frozen_margin=_optional_decimal(account_raw.get("frozen_margin")),
+        risk_ratio=_optional_decimal(account_raw.get("risk_ratio")),
+    )
+
+    positions_raw = _snapshot_list(entry.get("positions"), "positions")
+    positions = tuple(
+        _position(item, account.account_id)
+        for item in positions_raw
+    )
+
+    orders_raw = _snapshot_list(
+        entry.get("active_orders") or entry.get("orders"), "orders"
+    )
+    active_orders = tuple(
+        _active_order(item, account.account_id)
+        for item in orders_raw
+    )
+    version = _first(entry, "business_version", "version") or _first(
+        payload, "business_version", "version"
+    )
+    return PortfolioSnapshot(
+        account=account,
+        positions=positions,
+        active_orders=active_orders,
+        business_version=_optional_text(version),
+    )
+
+
+def _position(raw: Mapping[str, Any], account_id: str) -> PositionSnapshot:
+    # The trading-snapshot endpoint returns each row as
+    # {"position": <absolute position>, "pnl": <realtime valuation>}.
+    wrapped = raw.get("position")
+    if isinstance(wrapped, Mapping):
+        raw = wrapped
+    instrument = _first(raw, "order_book_id", "symbol", "code")
+    position_id = _first(raw, "position_id", "id")
+    if not instrument or not position_id:
+        raise SimTradingError(
+            "position is missing position_id or instrument; "
+            f"received fields: {', '.join(sorted(map(str, raw.keys())))}"
+        )
+    today_volume = _decimal(raw.get("today_volume", 0), "today_volume")
+    yesterday_volume = _decimal(raw.get("yesterday_volume", 0), "yesterday_volume")
+    explicit_volume = _first(raw, "volume", "quantity")
+    if explicit_volume is None:
+        if "today_volume" not in raw and "yesterday_volume" not in raw:
+            raise SimTradingError(
+                "position has no volume fields; "
+                f"received fields: {', '.join(sorted(map(str, raw.keys())))}"
+            )
+        volume = today_volume + yesterday_volume
+    else:
+        volume = _decimal(explicit_volume, "volume")
+    return PositionSnapshot(
+        position_id=str(position_id),
+        account_id=str(raw.get("account_id") or account_id),
+        instrument=str(instrument),
+        direction=str(_first(raw, "direction", "side") or "LONG").upper(),
+        volume=volume,
+        today_volume=today_volume,
+        yesterday_volume=yesterday_volume,
+        frozen_volume=_decimal(raw.get("frozen_volume", 0), "frozen_volume"),
+        available_volume=_decimal(
+            raw.get("available_volume", volume), "available_volume"
+        ),
+        average_price=_optional_decimal(
+            _first(raw, "average_price", "average_open_price", "cost_price")
+        ),
+    )
+
+
+def _active_order(raw: Mapping[str, Any], account_id: str) -> ActiveOrderSnapshot:
+    instrument = _first(raw, "order_book_id", "symbol", "code")
+    order_id = _first(raw, "order_id", "id")
+    if not instrument or not order_id:
+        raise SimTradingError(
+            "active order is missing order_id or instrument; "
+            f"received fields: {', '.join(sorted(map(str, raw.keys())))}"
+        )
+    total = _decimal(_first(raw, "total_volume", "volume", "quantity"), "total_volume")
+    traded = _decimal(
+        _first(raw, "traded_volume", "filled_quantity") or 0, "traded_volume"
+    )
+    remaining_value = _first(raw, "remaining_volume", "remaining_quantity")
+    remaining = total - traded if remaining_value is None else _decimal(
+        remaining_value, "remaining_volume"
+    )
+    return ActiveOrderSnapshot(
+        order_id=str(order_id),
+        account_id=str(raw.get("account_id") or account_id),
+        instrument=str(instrument),
+        status=str(_first(raw, "status", "state") or ""),
+        direction=str(_first(raw, "direction", "side") or "").upper(),
+        total_volume=total,
+        traded_volume=traded,
+        remaining_volume=remaining,
+        limit_price=_optional_decimal(
+            _first(raw, "limit_price", "resolved_price", "price")
+        ),
+    )
+
+
+def _unwrap(value: Any) -> Any:
+    if isinstance(value, Mapping) and "data" in value:
+        success = value.get("success")
+        if success is False:
+            raise SimTradingError(str(value.get("message") or "simulator request failed"))
+        return value["data"]
+    return value
+
+
+def _entry_account_id(entry: Mapping[str, Any]) -> str | None:
+    account = entry.get("account")
+    if isinstance(account, Mapping):
+        value = _first(account, "account_id", "id")
+    else:
+        value = _first(entry, "account_id", "id")
+    return None if value is None else str(value)
+
+
+def _snapshot_list(value: Any, name: str) -> tuple[Mapping[str, Any], ...]:
+    """Validate the arrays used by REST and WebSocket trading snapshots."""
+
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise SimTradingError(f"{name} in a trading snapshot is not a list")
+    if not all(isinstance(record, Mapping) for record in value):
+        raise SimTradingError(f"{name} collection contains a non-object record")
+    return tuple(value)
+
+
+def _first(value: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        candidate = value.get(key)
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def _decimal(value: Any, field: str) -> Decimal:
+    if value is None or isinstance(value, bool):
+        raise SimTradingError(f"{field} is missing or invalid")
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise SimTradingError(f"{field} is not decimal: {value!r}") from exc
+
+
+def _optional_decimal(value: Any) -> Decimal | None:
+    return None if value is None or value == "" else _decimal(value, "decimal field")
+
+
+def _date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError as exc:
+        raise SimTradingError(f"invalid trading_day: {value!r}") from exc
+
+
+def _optional_text(value: Any) -> str | None:
+    return None if value is None or value == "" else str(value)

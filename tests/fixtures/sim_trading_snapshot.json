@@ -1,0 +1,57 @@
+{
+  "event_type": "SNAPSHOT",
+  "business_version": "12345",
+  "payload": {
+    "accounts": [
+      {
+        "account": {
+          "account_id": "ETF-OPTION-1",
+          "account_type": "ETF_OPTION",
+          "status": "ACTIVE",
+          "trading_day": "2026-09-18",
+          "cash_balance": "1000000.10",
+          "available_cash": "800000.05",
+          "equity": "1000123.45",
+          "used_margin": "10000.00",
+          "frozen_margin": "500.00",
+          "risk_ratio": "0.0105"
+        },
+        "valuation": {
+          "risk_state": "NORMAL"
+        },
+        "positions": [
+          {
+            "position": {
+              "position_id": "P-1",
+              "account_id": "ETF-OPTION-1",
+              "order_book_id": "10009999.XSHE",
+              "direction": "LONG",
+              "today_volume": "1",
+              "yesterday_volume": "2",
+              "frozen_volume": "1",
+              "available_volume": "2",
+              "average_price": "0.1234"
+            },
+            "pnl": {
+              "unrealized_pnl": "1.20"
+            }
+          }
+        ],
+        "active_orders": [
+          {
+            "order_id": "O-1",
+            "account_id": "ETF-OPTION-1",
+            "symbol": "10008888.XSHE",
+            "status": "PARTIALLY_FILLED",
+            "direction": "SELL",
+            "total_volume": "5",
+            "traded_volume": "2",
+            "remaining_volume": "3",
+            "limit_price": "0.2345"
+          }
+        ],
+        "today_trades": []
+      }
+    ]
+  }
+}
