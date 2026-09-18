@@ -1,3 +1,4 @@
+from datetime import date
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -179,9 +180,69 @@ class SimTradingSourceTests(unittest.TestCase):
             )
         )
 
+    def test_reads_cursor_order_page_for_recovery(self) -> None:
+        calls = []
+
+        def request(method, url, headers, body):
+            calls.append((method, url, headers, body))
+            return {
+                "items": [
+                    {
+                        "order_id": "O-1",
+                        "client_order_id": "C-1",
+                        "account_id": "ETF-OPTION-1",
+                        "symbol": "9001",
+                        "direction": "SELL",
+                        "offset_flag": "OPEN",
+                        "order_type": "LIMIT",
+                        "limit_price": "0.1234",
+                        "total_volume": 2,
+                        "status": "FILLED",
+                    }
+                ],
+                "next_cursor": None,
+                "has_more": False,
+            }
+
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="secret-token",
+            request_json=request,
+        )
+
+        page = source.load_order_page(
+            "ETF-OPTION-1", date(2026, 9, 18), cursor="A B", limit=20
+        )
+
+        self.assertEqual(page.orders[0].client_order_id, "C-1")
+        self.assertEqual(page.orders[0].instrument, "9001")
+        self.assertTrue(
+            calls[0][1].endswith(
+                "/api/orders/page?account_id=ETF-OPTION-1&"
+                "trading_day=2026-09-18&limit=20&cursor=A+B"
+            )
+        )
+
+    def test_trade_page_ignores_orders_not_owned_by_this_registry(self) -> None:
+        unrelated = {**trade(), "order_id": "OTHER", "trade_id": "T-OTHER"}
+
+        page = self._trade_page([unrelated, trade()], {"O-1": "ALPHA"})
+
+        self.assertEqual([fill.trade_id for fill in page.fills], ["T-1"])
+
     def test_rejects_trade_without_saved_order_ownership(self) -> None:
         with self.assertRaisesRegex(SimTradingError, "no Alpha/Beta ownership"):
             normalize_confirmed_trade(trade(), "ETF-OPTION-1", {})
+
+    @staticmethod
+    def _trade_page(items, ownership):
+        from sim_hedge.adapters.sim_trading import normalize_confirmed_trade_page
+
+        return normalize_confirmed_trade_page(
+            {"items": items, "next_cursor": None, "has_more": False},
+            "ETF-OPTION-1",
+            ownership,
+        )
 
     def test_submits_exact_etf_option_request_and_requires_order_id(self) -> None:
         calls = []

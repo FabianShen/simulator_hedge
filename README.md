@@ -172,6 +172,27 @@ connection loss, `5xx`, invalid response, or missing `order_id` is recorded as
 `SUBMISSION_UNKNOWN`; that client ID cannot be submitted again until the order
 is recovered through a read-only query and bound to the registry.
 
+After submission, recover order IDs and rebuild the Alpha ledger only from the
+simulator's authoritative order, trade, and portfolio queries:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_reconcile `
+  outputs\order_registry.json `
+  --ledger outputs\strategy_ledger.json `
+  --initialize-ledger
+```
+
+This command performs only `GET` requests. It pages through the current trading
+day's orders and trades, verifies each broker order against its saved intent,
+recovers an ambiguous submission by exact `client_order_id`, and applies each
+confirmed `trade_id` once. It then checks that broker positions equal the Alpha
+plus Beta ledgers. `safe_for_hedging` becomes true only when the account is
+healthy, every Alpha intent is fully filled, no submission remains unknown, no
+broker order is active, and positions reconcile. A not-ready result is still
+written for diagnosis and exits with status 2. Use `--initialize-ledger` only
+for this first broker replay; omit it on later runs so the confirmed ledger is
+loaded and each `trade_id` remains idempotent across restarts.
+
 Persist order ownership before any future submission:
 
 ```powershell
@@ -214,9 +235,10 @@ The simulated-trading adapter reads the documented
 `GET /api/trades/page` cursor endpoint and normalizes its actual
 `trade_id/order_id/order_book_id/direction/trade_volume/trade_price/trade_time`
 fields. The WebSocket adapter handles the same facts from `TRADE_CREATED`.
-Both require a saved `order_id -> ALPHA/BETA` ownership mapping; an unknown order
-is rejected rather than assigned by inference. REST remains the authoritative
-backfill source and WebSocket is only the low-latency path.
+Both require a saved `order_id -> ALPHA/BETA` ownership mapping. REST page
+replay ignores trades outside this project's registry, while direct ingestion
+rejects an unknown order; neither assigns ownership by inference. REST remains
+the authoritative backfill source and WebSocket is only the low-latency path.
 
 Build an offline Delta/Gamma hedge decision from the same pricing request and
 a broker portfolio plus a fill-confirmed Alpha/Beta strategy ledger:

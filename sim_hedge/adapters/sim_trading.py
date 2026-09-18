@@ -39,8 +39,29 @@ class ConfirmedTradePage:
     has_more: bool
 
 
+@dataclass(frozen=True)
+class BrokerOrder:
+    order_id: str
+    client_order_id: str
+    account_id: str
+    instrument: str
+    direction: str
+    offset: str
+    order_type: str
+    limit_price: Decimal | None
+    total_volume: int
+    status: str
+
+
+@dataclass(frozen=True)
+class BrokerOrderPage:
+    orders: tuple[BrokerOrder, ...]
+    next_cursor: str | None
+    has_more: bool
+
+
 class SimTradingPortfolioSource:
-    """Read portfolio and trade facts; this class deliberately has no order methods."""
+    """Authenticated adapter for simulated-trading broker facts and submission."""
 
     def __init__(
         self,
@@ -116,6 +137,30 @@ class SimTradingPortfolioSource:
             query["cursor"] = cursor
         raw = self._get(f"/api/trades/page?{urlencode(query)}")
         return normalize_confirmed_trade_page(raw, account_id, order_strategies)
+
+    def load_order_page(
+        self,
+        account_id: str,
+        trading_day: date,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> BrokerOrderPage:
+        """Read one authoritative order page for recovery and audit."""
+
+        if not account_id:
+            raise ValueError("account_id must not be empty")
+        if limit <= 0 or limit > 100:
+            raise ValueError("order page limit must be between 1 and 100")
+        query: dict[str, Any] = {
+            "account_id": account_id,
+            "trading_day": trading_day.isoformat(),
+            "limit": limit,
+        }
+        if cursor:
+            query["cursor"] = cursor
+        raw = self._get(f"/api/orders/page?{urlencode(query)}")
+        return normalize_order_page(raw, account_id)
 
     def submit_etf_option_order(
         self, request: Mapping[str, Any]
@@ -311,6 +356,7 @@ def normalize_confirmed_trade_page(
     fills = tuple(
         normalize_confirmed_trade(item, account_id, order_strategies)
         for item in items
+        if str(item.get("order_id") or "") in order_strategies
     )
     has_more = payload.get("has_more")
     if not isinstance(has_more, bool):
@@ -322,6 +368,60 @@ def normalize_confirmed_trade_page(
         fills=fills,
         next_cursor=None if next_cursor in (None, "") else str(next_cursor),
         has_more=has_more,
+    )
+
+
+def normalize_order_page(raw: Any, account_id: str) -> BrokerOrderPage:
+    payload = _unwrap(raw)
+    if not isinstance(payload, Mapping):
+        raise SimTradingError("order page is not an object")
+    items = payload.get("items")
+    if not isinstance(items, list) or not all(isinstance(item, Mapping) for item in items):
+        raise SimTradingError("order page items must be a list of objects")
+    orders = tuple(normalize_order(item, account_id) for item in items)
+    has_more = payload.get("has_more")
+    if not isinstance(has_more, bool):
+        raise SimTradingError("order page has_more must be boolean")
+    next_cursor = payload.get("next_cursor")
+    if has_more and not next_cursor:
+        raise SimTradingError("order page has_more without next_cursor")
+    return BrokerOrderPage(
+        orders=orders,
+        next_cursor=None if next_cursor in (None, "") else str(next_cursor),
+        has_more=has_more,
+    )
+
+
+def normalize_order(raw: Mapping[str, Any], account_id: str) -> BrokerOrder:
+    actual_account = str(raw.get("account_id") or "")
+    if actual_account != str(account_id):
+        raise SimTradingError(
+            f"order account mismatch: expected {account_id}, received {actual_account}"
+        )
+    order_id = str(raw.get("order_id") or "")
+    client_order_id = str(raw.get("client_order_id") or "")
+    instrument = str(_first(raw, "order_book_id", "symbol") or "")
+    if not order_id or not client_order_id or not instrument:
+        raise SimTradingError(
+            "order is missing order_id, client_order_id, or instrument"
+        )
+    total_volume = _decimal(raw.get("total_volume"), "total_volume")
+    if total_volume != total_volume.to_integral_value() or total_volume <= 0:
+        raise SimTradingError("total_volume must be a positive integer")
+    raw_price = raw.get("limit_price")
+    return BrokerOrder(
+        order_id=order_id,
+        client_order_id=client_order_id,
+        account_id=actual_account,
+        instrument=instrument,
+        direction=str(raw.get("direction") or "").upper(),
+        offset=str(raw.get("offset_flag") or "").upper(),
+        order_type=str(raw.get("order_type") or "").upper(),
+        limit_price=(
+            None if raw_price in (None, "") else _decimal(raw_price, "limit_price")
+        ),
+        total_volume=int(total_volume),
+        status=str(raw.get("status") or "").upper(),
     )
 
 
