@@ -6,6 +6,7 @@ import os
 
 from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
+from sim_hedge.adapters.grpc_pricing import GrpcPricingClient, PricingServiceError
 from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
@@ -16,6 +17,7 @@ from sim_hedge.pricing_request import (
     build_pricing_request,
     record_pricing_request,
 )
+from sim_hedge.pricing_worker import ContinuousPricingWorker
 from sim_hedge.strategy_universe import StrategyUniverse, select_strategy_universe
 
 
@@ -51,6 +53,15 @@ def main() -> None:
     parser.add_argument("--dividend-yield", type=float, default=0.0)
     parser.add_argument("--sabr-beta", type=float, default=0.5)
     parser.add_argument(
+        "--pricing-target",
+        default=os.getenv("PRICING_TARGET", ""),
+        metavar="HOST:PORT",
+        help="enable continuous external pricing; example: 127.0.0.1:50051",
+    )
+    parser.add_argument("--pricing-interval", type=float, default=1.0)
+    parser.add_argument("--pricing-timeout", type=float, default=0.5)
+    parser.add_argument("--pricing-max-age", type=float, default=2.0)
+    parser.add_argument(
         "--expiry-time",
         type=parse_clock_time,
         default=parse_clock_time("15:00"),
@@ -69,6 +80,12 @@ def main() -> None:
         parser.error("--strike-wings must not be negative")
     if not 0 <= args.sabr_beta <= 1:
         parser.error("--sabr-beta must be between zero and one")
+    if args.pricing_interval <= 0:
+        parser.error("--pricing-interval must be positive")
+    if args.pricing_timeout <= 0:
+        parser.error("--pricing-timeout must be positive")
+    if args.pricing_max_age <= 0:
+        parser.error("--pricing-max-age must be positive")
     # Review option chain without activate live feed
     if args.check_options:
         contracts = load_option_chain(args.check_options, args.mode, parser)
@@ -98,6 +115,54 @@ def main() -> None:
         beta=args.sabr_beta,
         expiry_time=args.expiry_time,
     )
+    pricing_client: GrpcPricingClient | None = None
+    pricing_worker: ContinuousPricingWorker | None = None
+
+    if args.pricing_target:
+        pricing_client = GrpcPricingClient(
+            args.pricing_target,
+            timeout=args.pricing_timeout,
+        )
+        try:
+            health = pricing_client.health()
+        except PricingServiceError as exc:
+            pricing_client.close()
+            raise SystemExit(f"pricing service unavailable: {exc}") from exc
+        print(
+            f"pricing service: {health.engine_name} {health.engine_version} "
+            f"({health.protocol_version})",
+            flush=True,
+        )
+
+        def make_pricing_request(request_id, as_of):
+            if universe is None:
+                raise PricingRequestError("strategy universe not selected")
+            return build_pricing_request(
+                request_id=request_id,
+                as_of=as_of,
+                market_state=market_state,
+                universe=universe,
+                policy=pricing_policy,
+                feed_unsafe=(
+                    source.health.data_unsafe or source.health.state != "running"
+                ),
+            )
+
+        def display_pricing(result) -> None:
+            print(
+                f"pricing ready request={result.request_id} "
+                f"options={len(result.results)} "
+                f"rmse={result.calibration.rmse:.8f}",
+                flush=True,
+            )
+
+        pricing_worker = ContinuousPricingWorker(
+            pricing_client,
+            make_pricing_request,
+            interval=args.pricing_interval,
+            max_result_age=timedelta(seconds=args.pricing_max_age),
+            on_result=display_pricing,
+        )
 
     def on_quote(quote) -> None:
         nonlocal count, universe, pricing_recorded, pricing_record_error
@@ -142,6 +207,8 @@ def main() -> None:
                     f"recorded pricing request: {args.record_pricing}",
                     flush=True,
                 )
+        if pricing_worker is not None:
+            pricing_worker.request_update()
         count += 1
         if args.max_quotes > 0 and count >= args.max_quotes:
             source.stop()
@@ -166,6 +233,8 @@ def main() -> None:
         flush=True,
     )
     
+    if pricing_worker is not None:
+        pricing_worker.start()
     monitor.start()
     try:
         source.run(on_quote)
@@ -175,6 +244,18 @@ def main() -> None:
         raise SystemExit(f"live feed failed: {type(exc).__name__}: {exc}") from exc
     finally:
         monitor.stop()
+        if pricing_worker is not None:
+            pricing_worker.stop()
+            print(f"pricing health: {pricing_worker.health}", flush=True)
+            latest_pricing = pricing_worker.latest()
+            if latest_pricing is not None:
+                print(
+                    f"latest pricing: request={latest_pricing.request_id} "
+                    f"options={len(latest_pricing.results)}",
+                    flush=True,
+                )
+        if pricing_client is not None:
+            pricing_client.close()
         print(f"feed health: {source.health}", flush=True)
         readiness = market_state.readiness(
             now=datetime.now(timezone.utc),

@@ -40,6 +40,22 @@ Run the same engine behind the local versioned gRPC boundary:
 
 The gRPC client enforces a deadline and verifies the service protocol version.
 
+For continuous live pricing, keep the server running and start the market
+gateway with an explicit target:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge `
+  --pricing-target 127.0.0.1:50051 `
+  --pricing-interval 1 `
+  --pricing-timeout 0.5 `
+  --pricing-max-age 2
+```
+
+Quote callbacks only signal a dedicated pricing worker. The worker coalesces
+updates, permits one RPC at a time, retains the latest valid result, and rejects
+responses whose input snapshot has exceeded the freshness limit. Continuous
+pricing is disabled when `--pricing-target` is omitted.
+
 ## Run
 
 ```powershell
@@ -133,6 +149,7 @@ sim_hedge/
 │   ├── market_monitor.py Diagnostic status and atomic JSON projection
 │   ├── market_state.py   Latest quotes and market readiness
 │   ├── option_chain.py   Option-chain inspection logic
+│   ├── pricing_worker.py Non-blocking continuous pricing coordinator
 │   ├── strategy_universe.py  Pricing-universe selection
 │   └── ports.py          Interfaces required by the application
 ├── tests/
@@ -140,6 +157,7 @@ sim_hedge/
 │   ├── test_market_monitor.py
 │   ├── test_option_chain.py
 │   ├── test_pricing_protocol_examples.py
+│   ├── test_pricing_worker.py
 │   ├── test_strategy_universe.py
 │   ├── test_ymm_reference.py
 │   └── test_ymm_live.py
