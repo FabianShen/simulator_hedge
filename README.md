@@ -75,6 +75,19 @@ $env:SIM_ACCOUNT_ID = "your-etf-option-account-id"
   --output outputs\portfolio_state.json
 ```
 
+To verify WebSocket recovery without processing incremental events yet:
+
+```powershell
+$env:SIM_WS_URL = "ws://your-simulator:8001/ws/trading"
+.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote `
+  --output outputs\portfolio_state.json
+```
+
+This loads REST revision 1, requires the documented first WebSocket business
+event to be `SNAPSHOT`, replaces the state as revision 2, and exits. Individual
+incremental events are intentionally not applied until their real payloads have
+been observed.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,

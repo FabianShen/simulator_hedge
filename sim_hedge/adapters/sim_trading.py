@@ -83,6 +83,24 @@ class SimTradingPortfolioSource:
             raise SimTradingError("settlement-account response is not an object")
         return payload
 
+    def websocket_ticket(self) -> str:
+        """Create the short-lived, single-use ticket required by the WS API."""
+
+        if not self._access_token:
+            raise SimTradingError("not authenticated; provide a token or call login()")
+        payload = _unwrap(
+            self._request_json(
+                "POST",
+                f"{self._base_url}/api/ws/ticket",
+                {"Authorization": f"Bearer {self._access_token}"},
+                None,
+            )
+        )
+        ticket = payload.get("ticket") if isinstance(payload, Mapping) else None
+        if not ticket:
+            raise SimTradingError("ticket response did not contain ticket")
+        return str(ticket)
+
     def _get(self, path: str) -> Any:
         if not self._access_token:
             raise SimTradingError("not authenticated; provide a token or call login()")

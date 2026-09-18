@@ -11,12 +11,19 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from sim_hedge.adapters.sim_trading import SimTradingPortfolioSource
+from sim_hedge.adapters.sim_trading_ws import SimTradingSnapshotStream
+from sim_hedge.portfolio_state import PortfolioState
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read simulated portfolio state")
     parser.add_argument("--base-url", default=os.getenv("SIM_REST_BASE_URL", ""))
     parser.add_argument("--account-id", default=os.getenv("SIM_ACCOUNT_ID", ""))
+    parser.add_argument(
+        "--ws-url",
+        default=os.getenv("SIM_WS_URL", ""),
+        help="optionally verify and apply the first WebSocket SNAPSHOT",
+    )
     parser.add_argument(
         "--list-accounts",
         action="store_true",
@@ -55,15 +62,15 @@ def main() -> None:
             print(f"{account_id} type={account_type} status={status}")
         return
 
+    state = PortfolioState()
     snapshot = source.load(args.account_id)
-    print(
-        f"portfolio account={snapshot.account.account_id} "
-        f"type={snapshot.account.account_type or '?'} "
-        f"status={snapshot.account.status or '?'} "
-        f"risk={snapshot.account.risk_state or '?'} "
-        f"positions={len(snapshot.positions)} "
-        f"active_orders={len(snapshot.active_orders)}"
-    )
+    state.replace(snapshot)
+    _print_summary("REST", snapshot, state.revision)
+    if args.ws_url:
+        snapshot = SimTradingSnapshotStream(
+            source, args.ws_url, args.account_id
+        ).replace_from_first_snapshot(state)
+        _print_summary("WebSocket", snapshot, state.revision)
     for position in snapshot.positions:
         print(
             f"position {position.instrument} {position.direction} "
@@ -72,6 +79,18 @@ def main() -> None:
     if args.output:
         _write_json(args.output, asdict(snapshot))
         print(f"wrote normalized portfolio: {args.output}")
+
+
+def _print_summary(source: str, snapshot, revision: int) -> None:
+    print(
+        f"{source} portfolio revision={revision} "
+        f"account={snapshot.account.account_id} "
+        f"type={snapshot.account.account_type or '?'} "
+        f"status={snapshot.account.status or '?'} "
+        f"risk={snapshot.account.risk_state or '?'} "
+        f"positions={len(snapshot.positions)} "
+        f"active_orders={len(snapshot.active_orders)}"
+    )
 
 
 def _write_json(path: str, value: object) -> None:

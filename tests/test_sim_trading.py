@@ -100,6 +100,24 @@ class SimTradingSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(SimTradingError, "not authenticated"):
             source.load("ETF-OPTION-1")
 
+    def test_creates_websocket_ticket_with_authenticated_post(self) -> None:
+        calls = []
+
+        def request(method, url, headers, body):
+            calls.append((method, url, headers, body))
+            return {"ticket": "one-use"}
+
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="secret-token",
+            request_json=request,
+        )
+
+        self.assertEqual(source.websocket_ticket(), "one-use")
+        self.assertEqual(calls[0][0], "POST")
+        self.assertEqual(calls[0][1], "http://simulator.test/api/ws/ticket")
+        self.assertEqual(calls[0][3], None)
+
 
 if __name__ == "__main__":
     unittest.main()
