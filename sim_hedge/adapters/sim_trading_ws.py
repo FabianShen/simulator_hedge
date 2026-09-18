@@ -9,9 +9,11 @@ from urllib.parse import quote
 
 import websocket
 
+from hedge_engine import ConfirmedFill
 from sim_hedge.adapters.sim_trading import (
     SimTradingError,
     SimTradingPortfolioSource,
+    normalize_confirmed_trade,
     normalize_position,
     normalize_portfolio_snapshot,
 )
@@ -88,6 +90,9 @@ class SimTradingSnapshotStream:
         self,
         state: PortfolioState,
         on_change: Callable[[str, PortfolioSnapshot], None] | None = None,
+        *,
+        order_strategies: Mapping[str, str] | None = None,
+        on_trade: Callable[[ConfirmedFill], None] | None = None,
     ) -> None:
         """Continuously apply absolute position events until stopped or disconnected."""
 
@@ -129,6 +134,17 @@ class SimTradingSnapshotStream:
                     continue
                 if event.get("account_id") not in (None, self._account_id):
                     raise SimTradingError("received event for a different account")
+                if event_type == "TRADE_CREATED" and on_trade is not None:
+                    payload = event.get("payload")
+                    if not isinstance(payload, Mapping):
+                        raise SimTradingError("TRADE_CREATED payload is not an object")
+                    if order_strategies is None:
+                        raise SimTradingError("trade callback requires order ownership")
+                    on_trade(
+                        normalize_confirmed_trade(
+                            payload, self._account_id, order_strategies
+                        )
+                    )
                 changed = self._apply_position_event(state, event)
                 if changed and on_change is not None:
                     snapshot = state.snapshot()

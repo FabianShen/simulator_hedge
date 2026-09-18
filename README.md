@@ -133,6 +133,88 @@ The output explicitly records `PREMIUM_EQUIVALENT_NOT_MARGIN` and
 The command defaults to `--max-contracts-per-option 1` and records both the
 uncapped premium capacity and the applied cap.
 
+Generate registered Alpha order intents from saved data without submitting:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_orders `
+  outputs\live-pricing-request.json `
+  outputs\alpha_plan.json `
+  --exchange-id SZSE `
+  --output outputs\alpha_order_dry_run.json `
+  --registry-output outputs\order_registry.json
+```
+
+The saved mid is rounded to the nearest valid price tick for inspection only.
+The output explicitly says `submission_allowed: false` and `orders_submitted: 0`;
+execution must rebuild or validate prices against a fresh live market snapshot.
+
+Persist order ownership before any future submission:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.order_registry register `
+  outputs\order-intent.json `
+  --output outputs\order_registry.json
+```
+
+After the simulator accepts that intent, bind its returned `order_id` using a
+small JSON object containing `client_order_id` and `order_id`:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.order_registry bind `
+  outputs\order-binding.json `
+  --registry outputs\order_registry.json `
+  --output outputs\order_registry.json
+```
+
+Registration and binding are idempotent. A reused ID with different contents,
+binding before registration, or a second broker order for one client ID is
+rejected. This registry still performs no submission; it establishes the
+ownership and retry boundary required by a later order adapter.
+
+Replay normalized, broker-confirmed fills into the separate Alpha/Beta ledger:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.strategy_ledger `
+  outputs\confirmed-fills.json `
+  --output outputs\strategy_ledger.json
+```
+
+For later fill batches, add `--ledger outputs\strategy_ledger.json`. Each fill
+must carry the broker `trade_id`, `order_id`, account, signed integer quantity,
+price, execution time, and an `ALPHA` or `BETA` ownership label inherited from
+the originating order. Replaying the same `trade_id` is idempotent; conflicting
+contents or cross-book ownership are rejected. This command is an offline replay
+boundary and does not claim that a manually authored file came from the broker.
+
+The simulated-trading adapter reads the documented
+`GET /api/trades/page` cursor endpoint and normalizes its actual
+`trade_id/order_id/order_book_id/direction/trade_volume/trade_price/trade_time`
+fields. The WebSocket adapter handles the same facts from `TRADE_CREATED`.
+Both require a saved `order_id -> ALPHA/BETA` ownership mapping; an unknown order
+is rejected rather than assigned by inference. REST remains the authoritative
+backfill source and WebSocket is only the low-latency path.
+
+Build an offline Delta/Gamma hedge decision from the same pricing request and
+a broker portfolio plus a fill-confirmed Alpha/Beta strategy ledger:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.hedge_plan `
+  outputs\live-pricing-request.json `
+  outputs\portfolio_state.json `
+  outputs\strategy_ledger.json `
+  --output outputs\hedge_plan.json
+```
+
+The pure `hedge_engine` aggregates contract-multiplied Alpha Greeks, selects the
+nearest non-Alpha call/put pair, and solves for continuous incremental trades
+that neutralize current Delta and Gamma. It then evaluates the four surrounding
+integer combinations and keeps the one with the smallest normalized Delta/Gamma
+residual. `outputs/strategy_ledger.json` keeps fill-confirmed Alpha and Beta
+positions separate. Hedge planning accepts only a `CONFIRMED` ledger, requires
+`broker positions == Alpha actual positions + Beta actual positions`, and
+rejects active broker orders. Alpha instruments contribute risk but are removed
+from the nearest-DTE Beta universe. The hedge-plan file creates no broker orders.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,

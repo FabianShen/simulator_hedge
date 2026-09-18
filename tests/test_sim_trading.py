@@ -6,11 +6,25 @@ import unittest
 from sim_hedge.adapters.sim_trading import (
     SimTradingError,
     SimTradingPortfolioSource,
+    normalize_confirmed_trade,
     normalize_portfolio_snapshot,
 )
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sim_trading_snapshot.json"
+
+
+def trade() -> dict:
+    return {
+        "trade_id": "T-1",
+        "order_id": "O-1",
+        "account_id": "ETF-OPTION-1",
+        "order_book_id": "10009999.XSHE",
+        "direction": "SELL",
+        "trade_volume": "2",
+        "trade_price": "0.1234",
+        "trade_time": "2026-09-18T02:00:00Z",
+    }
 
 
 class SimTradingNormalizationTests(unittest.TestCase):
@@ -130,6 +144,43 @@ class SimTradingSourceTests(unittest.TestCase):
         self.assertEqual(calls[0][0], "POST")
         self.assertEqual(calls[0][1], "http://simulator.test/api/ws/ticket")
         self.assertEqual(calls[0][3], None)
+
+    def test_reads_cursor_trade_page_and_attaches_order_ownership(self) -> None:
+        calls = []
+
+        def request(method, url, headers, body):
+            calls.append((method, url, headers, body))
+            return {
+                "items": [trade()],
+                "next_cursor": "NEXT",
+                "has_more": True,
+            }
+
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="secret-token",
+            request_json=request,
+        )
+
+        page = source.load_confirmed_trade_page(
+            "ETF-OPTION-1", {"O-1": "ALPHA"}, cursor="A B", limit=20
+        )
+
+        self.assertEqual(page.fills[0].trade_id, "T-1")
+        self.assertEqual(page.fills[0].strategy, "ALPHA")
+        self.assertEqual(page.fills[0].quantity, -2)
+        self.assertEqual(page.fills[0].price, Decimal("0.1234"))
+        self.assertTrue(page.has_more)
+        self.assertEqual(page.next_cursor, "NEXT")
+        self.assertTrue(
+            calls[0][1].endswith(
+                "/api/trades/page?account_id=ETF-OPTION-1&limit=20&cursor=A+B"
+            )
+        )
+
+    def test_rejects_trade_without_saved_order_ownership(self) -> None:
+        with self.assertRaisesRegex(SimTradingError, "no Alpha/Beta ownership"):
+            normalize_confirmed_trade(trade(), "ETF-OPTION-1", {})
 
 
 if __name__ == "__main__":

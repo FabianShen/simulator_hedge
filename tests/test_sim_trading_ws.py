@@ -141,6 +141,65 @@ class SimTradingSnapshotStreamTests(unittest.TestCase):
         self.assertFalse(state.synchronized)
         self.assertTrue(socket.closed)
 
+    def test_watch_delivers_owned_trade_events(self) -> None:
+        snapshot_event = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        trade = {
+            "trade_id": "T-1",
+            "order_id": "O-1",
+            "account_id": "ETF-OPTION-1",
+            "order_book_id": "10009999.XSHE",
+            "direction": "BUY",
+            "trade_volume": "1",
+            "trade_price": "0.1234",
+            "trade_time": "2026-09-18T02:00:00Z",
+        }
+        socket = FakeSocket(
+            [
+                json.dumps(snapshot_event),
+                json.dumps(
+                    {
+                        "event_type": "TRADE_CREATED",
+                        "account_id": "ETF-OPTION-1",
+                        "entity_id": "T-1",
+                        "payload": trade,
+                    }
+                ),
+                KeyboardInterrupt(),
+            ]
+        )
+
+        def request(method, url, headers, body):
+            if url.endswith("/api/ws/ticket"):
+                return {"ticket": "one-use"}
+            return snapshot_event["payload"]
+
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="token",
+            request_json=request,
+        )
+        state = PortfolioState()
+        state.replace(source.load("ETF-OPTION-1"))
+        fills = []
+        stream = SimTradingSnapshotStream(
+            source,
+            "ws://simulator.test/ws/trading",
+            "ETF-OPTION-1",
+            connect=lambda url, timeout: socket,
+        )
+
+        with self.assertRaises(KeyboardInterrupt):
+            stream.watch_positions(
+                state,
+                order_strategies={"O-1": "BETA"},
+                on_trade=fills.append,
+            )
+
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0].trade_id, "T-1")
+        self.assertEqual(fills[0].strategy, "BETA")
+        self.assertEqual(fills[0].quantity, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

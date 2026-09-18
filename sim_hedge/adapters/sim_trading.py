@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import json
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPCookieProcessor
+from urllib.parse import urlencode
 import http.cookiejar
 
+from hedge_engine import ConfirmedFill
 from sim_hedge.portfolio import (
     AccountSnapshot,
     ActiveOrderSnapshot,
@@ -25,8 +28,15 @@ class SimTradingError(RuntimeError):
 JsonRequest = Callable[[str, str, Mapping[str, str], Mapping[str, Any] | None], Any]
 
 
+@dataclass(frozen=True)
+class ConfirmedTradePage:
+    fills: tuple[ConfirmedFill, ...]
+    next_cursor: str | None
+    has_more: bool
+
+
 class SimTradingPortfolioSource:
-    """Fetch account snapshots only; this class deliberately has no order methods."""
+    """Read portfolio and trade facts; this class deliberately has no order methods."""
 
     def __init__(
         self,
@@ -82,6 +92,26 @@ class SimTradingPortfolioSource:
         if not isinstance(payload, Mapping):
             raise SimTradingError("settlement-account response is not an object")
         return payload
+
+    def load_confirmed_trade_page(
+        self,
+        account_id: str,
+        order_strategies: Mapping[str, str],
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> ConfirmedTradePage:
+        """Read one authoritative trade page and attach known strategy ownership."""
+
+        if not account_id:
+            raise ValueError("account_id must not be empty")
+        if limit <= 0 or limit > 100:
+            raise ValueError("trade page limit must be between 1 and 100")
+        query: dict[str, Any] = {"account_id": account_id, "limit": limit}
+        if cursor:
+            query["cursor"] = cursor
+        raw = self._get(f"/api/trades/page?{urlencode(query)}")
+        return normalize_confirmed_trade_page(raw, account_id, order_strategies)
 
     def websocket_ticket(self) -> str:
         """Create the short-lived, single-use ticket required by the WS API."""
@@ -211,6 +241,74 @@ def normalize_portfolio_snapshot(raw: Any, account_id: str) -> PortfolioSnapshot
         positions=positions,
         active_orders=active_orders,
         business_version=_optional_text(version),
+    )
+
+
+def normalize_confirmed_trade_page(
+    raw: Any,
+    account_id: str,
+    order_strategies: Mapping[str, str],
+) -> ConfirmedTradePage:
+    payload = _unwrap(raw)
+    if not isinstance(payload, Mapping):
+        raise SimTradingError("trade page is not an object")
+    items = payload.get("items")
+    if not isinstance(items, list) or not all(isinstance(item, Mapping) for item in items):
+        raise SimTradingError("trade page items must be a list of objects")
+    fills = tuple(
+        normalize_confirmed_trade(item, account_id, order_strategies)
+        for item in items
+    )
+    has_more = payload.get("has_more")
+    if not isinstance(has_more, bool):
+        raise SimTradingError("trade page has_more must be boolean")
+    next_cursor = payload.get("next_cursor")
+    if has_more and not next_cursor:
+        raise SimTradingError("trade page has_more without next_cursor")
+    return ConfirmedTradePage(
+        fills=fills,
+        next_cursor=None if next_cursor in (None, "") else str(next_cursor),
+        has_more=has_more,
+    )
+
+
+def normalize_confirmed_trade(
+    raw: Mapping[str, Any],
+    account_id: str,
+    order_strategies: Mapping[str, str],
+) -> ConfirmedFill:
+    actual_account = str(raw.get("account_id") or "")
+    if actual_account != str(account_id):
+        raise SimTradingError(
+            f"trade account mismatch: expected {account_id}, received {actual_account}"
+        )
+    trade_id = str(raw.get("trade_id") or "")
+    order_id = str(raw.get("order_id") or "")
+    instrument = str(raw.get("order_book_id") or "")
+    if not trade_id or not order_id or not instrument:
+        raise SimTradingError("trade is missing trade_id, order_id, or order_book_id")
+    strategy = order_strategies.get(order_id)
+    if strategy not in {"ALPHA", "BETA"}:
+        raise SimTradingError(f"trade order {order_id} has no Alpha/Beta ownership")
+    volume = _decimal(raw.get("trade_volume"), "trade_volume")
+    if volume != volume.to_integral_value() or volume <= 0:
+        raise SimTradingError("trade_volume must be a positive integer")
+    direction = str(raw.get("direction") or "").upper()
+    if direction == "BUY":
+        quantity = int(volume)
+    elif direction == "SELL":
+        quantity = -int(volume)
+    else:
+        raise SimTradingError(f"unknown trade direction: {direction!r}")
+    return ConfirmedFill(
+        trade_id=trade_id,
+        order_id=order_id,
+        account_id=actual_account,
+        strategy=strategy,
+        instrument=instrument,
+        quantity=quantity,
+        price=_decimal(raw.get("trade_price"), "trade_price"),
+        executed_at=_datetime(raw.get("trade_time")),
     )
 
 
@@ -350,6 +448,18 @@ def _date(value: Any) -> date | None:
         return date.fromisoformat(str(value))
     except ValueError as exc:
         raise SimTradingError(f"invalid trading_day: {value!r}") from exc
+
+
+def _datetime(value: Any) -> datetime:
+    if value is None or value == "":
+        raise SimTradingError("trade_time is missing")
+    try:
+        result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SimTradingError(f"invalid trade_time: {value!r}") from exc
+    if result.tzinfo is None:
+        raise SimTradingError("trade_time must be timezone-aware")
+    return result
 
 
 def _optional_text(value: Any) -> str | None:
