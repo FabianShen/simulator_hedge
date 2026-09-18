@@ -2,6 +2,10 @@
 
 `sim_hedge` is for simulating trade, able to do actual trading.
 
+Commands load the nearest `.env` found from the working directory upward.
+Existing PowerShell environment variables take precedence. Copy `.env.example`
+to `.env`, fill in local values, and never commit the resulting `.env` file.
+
 The market-data boundary subscribes to `ymm_live_data_sdk` tick channels and
 converts vendor dictionaries into internal `MarketQuote` values. The SDK
 callback only places batches into a bounded queue; normalization and application
@@ -108,11 +112,26 @@ initial cash as a premium-equivalent budget:
 
 ```text
 one basket = sum(reference price * contract multiplier) for every selected leg
-contracts per option = floor(30% * initial cash / one basket)
+premium capacity = floor(30% * initial cash / one basket)
+contracts per option = min(premium capacity, explicit test cap)
 ```
 
 This is an offline sizing rule, not a short-option margin calculation, and it
 does not submit orders or modify the actual `PortfolioState`.
+
+Build an inspectable Alpha plan entirely from recorded inputs:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_plan `
+  outputs\live-pricing-request.json `
+  outputs\portfolio_state.json `
+  --output outputs\alpha_plan.json
+```
+
+The output explicitly records `PREMIUM_EQUIVALENT_NOT_MARGIN` and
+`orders_generated: false`; it is an offline target, not permission to trade.
+The command defaults to `--max-contracts-per-option 1` and records both the
+uncapped premium capacity and the applied cap.
 
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical

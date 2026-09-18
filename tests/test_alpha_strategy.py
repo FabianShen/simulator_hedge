@@ -78,6 +78,19 @@ class AlphaStrategyTests(unittest.TestCase):
                 initial_cash="1000",
             )
 
+    def test_explicit_contract_cap_limits_the_target_not_the_capacity(self) -> None:
+        plan = build_short_otm_alpha_plan(
+            self.contracts,
+            spot=100,
+            reference_prices=self.prices,
+            initial_cash="100000",
+            max_contracts_per_option=1,
+        )
+
+        self.assertEqual(plan.premium_capacity, 7)
+        self.assertEqual(plan.contracts_per_option, 1)
+        self.assertEqual(set(plan.target_positions.values()), {-1})
+
 
 if __name__ == "__main__":
     unittest.main()

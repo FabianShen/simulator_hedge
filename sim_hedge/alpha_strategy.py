@@ -32,6 +32,8 @@ class AlphaPlan:
     budget_fraction: Decimal
     premium_equivalent_budget: Decimal
     one_contract_basket_value: Decimal
+    premium_capacity: int
+    max_contracts_per_option: int | None
     contracts_per_option: int
     legs: tuple[AlphaLeg, ...]
 
@@ -47,6 +49,7 @@ def build_short_otm_alpha_plan(
     reference_prices: Mapping[str, Decimal | float | int | str],
     initial_cash: Decimal | float | int | str,
     budget_fraction: Decimal | float | str = Decimal("0.30"),
+    max_contracts_per_option: int | None = None,
 ) -> AlphaPlan:
     """Build a balanced nearest-expiry basket with one quantity for every leg.
 
@@ -64,6 +67,8 @@ def build_short_otm_alpha_plan(
         raise AlphaPlanError("initial_cash must be positive")
     if not Decimal("0") < fraction <= Decimal("1"):
         raise AlphaPlanError("budget_fraction must be greater than zero and at most one")
+    if max_contracts_per_option is not None and max_contracts_per_option < 1:
+        raise AlphaPlanError("max_contracts_per_option must be positive")
 
     underlyings = {contract.underlying for contract in contracts}
     if len(underlyings) != 1:
@@ -101,11 +106,16 @@ def build_short_otm_alpha_plan(
         start=Decimal("0"),
     )
     budget = cash * fraction
-    contracts_per_option = int(budget // basket_value)
-    if contracts_per_option < 1:
+    premium_capacity = int(budget // basket_value)
+    if premium_capacity < 1:
         raise AlphaPlanError(
             "30% budget cannot fund one premium-equivalent contract per option"
         )
+    contracts_per_option = (
+        premium_capacity
+        if max_contracts_per_option is None
+        else min(premium_capacity, max_contracts_per_option)
+    )
     legs = tuple(
         AlphaLeg(contract=contract, quantity=-contracts_per_option)
         for contract in selected
@@ -117,6 +127,8 @@ def build_short_otm_alpha_plan(
         budget_fraction=fraction,
         premium_equivalent_budget=budget,
         one_contract_basket_value=basket_value,
+        premium_capacity=premium_capacity,
+        max_contracts_per_option=max_contracts_per_option,
         contracts_per_option=contracts_per_option,
         legs=legs,
     )

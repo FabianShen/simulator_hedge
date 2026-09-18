@@ -189,9 +189,11 @@ def normalize_portfolio_snapshot(raw: Any, account_id: str) -> PortfolioSnapshot
     )
 
     positions_raw = _snapshot_list(entry.get("positions"), "positions")
+    normalized_positions = (
+        normalize_position(item, account.account_id) for item in positions_raw
+    )
     positions = tuple(
-        normalize_position(item, account.account_id)
-        for item in positions_raw
+        position for position in normalized_positions if position.volume > 0
     )
 
     orders_raw = _snapshot_list(

@@ -12,10 +12,12 @@ from tempfile import NamedTemporaryFile
 
 from sim_hedge.adapters.sim_trading import SimTradingPortfolioSource
 from sim_hedge.adapters.sim_trading_ws import SimTradingSnapshotStream
+from sim_hedge.config import load_env_file
 from sim_hedge.portfolio_state import PortfolioState
 
 
 def main() -> None:
+    load_env_file()
     parser = argparse.ArgumentParser(description="Read simulated portfolio state")
     parser.add_argument("--base-url", default=os.getenv("SIM_REST_BASE_URL", ""))
     parser.add_argument("--account-id", default=os.getenv("SIM_ACCOUNT_ID", ""))

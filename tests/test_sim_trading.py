@@ -66,6 +66,19 @@ class SimTradingNormalizationTests(unittest.TestCase):
         self.assertEqual(snapshot.positions[0].yesterday_volume, Decimal("2"))
         self.assertEqual(snapshot.positions[0].volume, Decimal("3"))
 
+    def test_omits_closed_zero_volume_positions_from_snapshot(self) -> None:
+        account = self.raw["data"]["accounts"][0]
+        closed = json.loads(json.dumps(account["positions"][0]))
+        closed["position"]["position_id"] = "CLOSED"
+        closed["position"]["today_volume"] = "0"
+        closed["position"]["yesterday_volume"] = "0"
+        closed["position"]["available_volume"] = "0"
+        account["positions"].append(closed)
+
+        snapshot = normalize_portfolio_snapshot(self.raw, "ETF-OPTION-1")
+
+        self.assertEqual([position.position_id for position in snapshot.positions], ["P-1"])
+
 
 class SimTradingSourceTests(unittest.TestCase):
     def test_source_uses_only_read_endpoint_for_portfolio(self) -> None:

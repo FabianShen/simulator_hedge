@@ -7,6 +7,7 @@ import os
 from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
 from sim_hedge.adapters.grpc_pricing import GrpcPricingClient, PricingServiceError
+from sim_hedge.config import load_env_file
 from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
@@ -22,6 +23,7 @@ from sim_hedge.strategy_universe import StrategyUniverse, select_strategy_univer
 
 
 def main() -> None:
+    load_env_file()
     parser = argparse.ArgumentParser(description="Stream live YMM market ticks")
     parser.add_argument("underlying", nargs="?", default="159915.XSHE")
     parser.add_argument("--mode", choices=("lan", "TS"), default=os.getenv("LIVE_MODE", "lan"))
