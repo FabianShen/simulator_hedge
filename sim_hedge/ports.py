@@ -1,10 +1,11 @@
 """Interfaces owned by the application, not by external SDKs."""
 
-from typing import Protocol
+from typing import Any, Mapping, Protocol
 
 from datetime import date
 
 from sim_hedge.domain import MarketQuote, OptionContract
+from sim_hedge.pricing_types import PricingBatch, PricingServiceHealth
 
 
 class MarketDataSource(Protocol):
@@ -29,3 +30,16 @@ class OptionReferenceSource(Protocol):
         trading_date: date,
     ) -> list[OptionContract]:
         """Return active option contracts for one underlying and trading date."""
+
+
+class PricingClient(Protocol):
+    """Transport-neutral external pricing behavior needed by the application."""
+
+    def health(self) -> PricingServiceHealth:
+        """Verify service and protocol compatibility."""
+
+    def price(self, request: Mapping[str, Any]) -> PricingBatch:
+        """Price one immutable, versioned request."""
+
+    def close(self) -> None:
+        """Release transport resources."""

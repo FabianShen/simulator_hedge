@@ -45,3 +45,18 @@ The pricing engine is responsible for:
 The JSON files under `examples/` use the standard protobuf JSON field names and
 are intended for documentation, replay fixtures, and cross-language contract
 tests.
+
+## Generate Python bindings
+
+Generated files are checked in under `pricing/v1` so a runtime installation
+does not need the compiler. Regenerate them after changing `pricing.proto`:
+
+```powershell
+.\.venv\Scripts\python.exe -m grpc_tools.protoc `
+  -I protocols `
+  --python_out=. `
+  --grpc_python_out=. `
+  protocols\pricing\v1\pricing.proto
+```
+
+Commit the `.proto` source and regenerated files together.

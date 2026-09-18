@@ -3,6 +3,22 @@ name = "sim-hedge"
 version = "0.1.0"
 description = "A live option hedge simulation and trading engine."
 requires-python = ">=3.12"
+dependencies = [
+    "grpcio==1.76.0",
+    "protobuf==6.33.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "grpcio-tools==1.76.0",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pricing*", "pricing_engine*", "sim_hedge*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

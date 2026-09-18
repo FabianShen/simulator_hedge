@@ -29,5 +29,29 @@ Run the focused verification:
 .\.venv\Scripts\python.exe -m unittest tests.test_pricing_engine -v
 ```
 
-The future gRPC service will translate protocol messages into these pure input
-types. It will not contain the model mathematics itself.
+The gRPC service translates protocol messages into these pure input types. It
+does not contain the model mathematics itself.
+
+## Local gRPC service
+
+Install the project and development compiler once:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Start the pricing service:
+
+```powershell
+.\.venv\Scripts\python.exe -m pricing_engine.grpc_server
+```
+
+In another terminal, send any recorded protocol request:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.price_remote `
+  protocols\pricing\v1\examples\price_request.json
+```
+
+The default service address is `127.0.0.1:50051`; it is local-only and uses an
+unencrypted channel. Remote deployment will require TLS and authentication.

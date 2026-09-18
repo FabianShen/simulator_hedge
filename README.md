@@ -27,6 +27,19 @@ Run the dependency-free SABR/Black-76 reference engine without live data:
 .\.venv\Scripts\python.exe -m pricing_engine
 ```
 
+Run the same engine behind the local versioned gRPC boundary:
+
+```powershell
+# Terminal 1
+.\.venv\Scripts\python.exe -m pricing_engine.grpc_server
+
+# Terminal 2
+.\.venv\Scripts\python.exe -m sim_hedge.price_remote `
+  protocols\pricing\v1\examples\price_request.json
+```
+
+The gRPC client enforces a deadline and verifies the service protocol version.
+
 ## Run
 
 ```powershell
