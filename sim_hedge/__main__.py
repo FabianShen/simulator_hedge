@@ -2,7 +2,10 @@
 
 import argparse
 from datetime import date, datetime, timedelta, timezone
+from decimal import DecimalException
+import json
 import os
+from pathlib import Path
 
 from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
@@ -11,6 +14,7 @@ from sim_hedge.config import load_env_file
 from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
+from sim_hedge.live_risk import build_live_risk_snapshot, write_live_risk_snapshot
 from sim_hedge.option_chain import subscription, summarize
 from sim_hedge.pricing_request import (
     PricingRequestError,
@@ -20,6 +24,7 @@ from sim_hedge.pricing_request import (
 )
 from sim_hedge.pricing_worker import ContinuousPricingWorker
 from sim_hedge.strategy_universe import StrategyUniverse, select_strategy_universe
+from sim_hedge.strategy_ledger import ledger_from_payload
 
 
 def main() -> None:
@@ -69,6 +74,16 @@ def main() -> None:
     parser.add_argument("--pricing-timeout", type=float, default=0.5)
     parser.add_argument("--pricing-max-age", type=float, default=2.0)
     parser.add_argument(
+        "--strategy-ledger",
+        metavar="PATH",
+        help="publish live Greeks and a desired Beta target from this confirmed ledger",
+    )
+    parser.add_argument(
+        "--risk-output",
+        default="outputs/live_risk.json",
+        help="atomic live-risk output used with --strategy-ledger",
+    )
+    parser.add_argument(
         "--expiry-time",
         type=parse_clock_time,
         default=parse_clock_time("15:00"),
@@ -95,6 +110,8 @@ def main() -> None:
         parser.error("--pricing-max-age must be positive")
     if args.stop_after_recording and not args.record_pricing:
         parser.error("--stop-after-recording requires --record-pricing")
+    if args.strategy_ledger and not args.pricing_target:
+        parser.error("--strategy-ledger requires --pricing-target")
     # Review option chain without activate live feed
     if args.check_options:
         contracts = load_option_chain(args.check_options, args.mode, parser)
@@ -158,6 +175,53 @@ def main() -> None:
             )
 
         def display_pricing(result) -> None:
+            if args.strategy_ledger:
+                try:
+                    ledger_payload = json.loads(
+                        Path(args.strategy_ledger).read_text(encoding="utf-8")
+                    )
+                    if not isinstance(ledger_payload, dict):
+                        raise ValueError("strategy ledger is not an object")
+                    ledger = ledger_from_payload(ledger_payload)
+                    if universe is None:
+                        raise ValueError("strategy universe not selected")
+                    underlying_quote = market_state.snapshot().get(args.underlying)
+                    if underlying_quote is None:
+                        raise ValueError("underlying quote is missing")
+                    risk = build_live_risk_snapshot(
+                        result,
+                        universe,
+                        ledger,
+                        spot=quote_price(underlying_quote),
+                    )
+                except (
+                    OSError,
+                    ValueError,
+                    KeyError,
+                    DecimalException,
+                    json.JSONDecodeError,
+                ) as exc:
+                    risk = {
+                        "status": "NOT_READY",
+                        "source_pricing_request_id": result.request_id,
+                        "published_at": datetime.now(timezone.utc).isoformat(),
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "orders_generated": False,
+                    }
+                    write_live_risk_snapshot(args.risk_output, risk)
+                    print(f"live risk not ready: {exc}", flush=True)
+                    return
+                write_live_risk_snapshot(args.risk_output, risk)
+                portfolio_risk = risk["risk"]["portfolio"]
+                target = risk["desired_beta_positions"]
+                print(
+                    f"live risk request={result.request_id} "
+                    f"delta={portfolio_risk['delta']:.6g} "
+                    f"gamma={portfolio_risk['gamma']:.6g} "
+                    f"desired_beta={target}",
+                    flush=True,
+                )
+                return
             print(
                 f"pricing ready request={result.request_id} "
                 f"options={len(result.results)} "

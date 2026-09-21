@@ -57,7 +57,7 @@ def main() -> None:
     parser.add_argument("--registry-output")
     parser.add_argument("--ledger-output")
     parser.add_argument(
-        "--report-output", default="outputs/alpha_reconciliation.json"
+        "--report-output", default="outputs/portfolio_reconciliation.json"
     )
     args = parser.parse_args()
     if not args.base_url:
@@ -117,7 +117,7 @@ def main() -> None:
         json.JSONDecodeError,
         SimTradingError,
     ) as exc:
-        raise SystemExit(f"Alpha reconciliation failed: {exc}") from exc
+        raise SystemExit(f"Portfolio reconciliation failed: {exc}") from exc
 
     print(
         f"portfolio reconciliation safe_for_hedging="

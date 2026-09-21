@@ -60,6 +60,26 @@ updates, permits one RPC at a time, retains the latest valid result, and rejects
 responses whose input snapshot has exceeded the freshness limit. Continuous
 pricing is disabled when `--pricing-target` is omitted.
 
+Once the strategy ledger contains broker-confirmed Alpha/Beta positions, the
+same long-running market process can publish live portfolio Greeks and a desired
+Beta position after every accepted pricing result:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge `
+  --pricing-target 127.0.0.1:50051 `
+  --strategy-ledger outputs\strategy_ledger.json `
+  --risk-output outputs\live_risk.json
+```
+
+The ledger is reloaded after every pricing response, so a separately reconciled
+fill becomes part of the next risk calculation without restarting the live
+feed. `live_risk.json` is replaced atomically and contains actual Alpha/Beta
+positions, current portfolio Greeks, integer incremental trades, and the
+resulting desired Beta positions. It always records `orders_generated: false`.
+This market/pricing/risk process never calls the trading API. A separate order
+application may take as long as necessary to move the confirmed Beta position
+toward the published target; only broker-confirmed fills update the ledger.
+
 Portfolio state comes from the simulated-trading system, not from the market
 feed. The first read-only boundary fetches the authoritative absolute snapshot
 from `GET /api/accounts/{account_id}/trading-snapshot`, converts monetary and
@@ -355,6 +375,7 @@ After submission, reconcile all registered Alpha and Beta orders and fills:
 The next hedge cycle is allowed only when `safe_for_hedging`, `position_match`,
 and `all_fills_complete` are all true. The older
 `python -m sim_hedge.alpha_reconcile` command remains as a compatible alias.
+The combined report defaults to `outputs/portfolio_reconciliation.json`.
 
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
