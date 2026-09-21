@@ -1,0 +1,162 @@
+{
+  "protocol_version": "sim-hedge/execution-replay/v1",
+  "name": "partial-fill-cancel-replace-complete",
+  "hedge_proposal": {
+    "protocol_version": "sim-hedge/hedge-proposal/v1",
+    "proposal_id": "hedge-5e6bf180d49eee7e04bb",
+    "proposal_type": "INCREMENTAL_BETA",
+    "created_at": "2026-09-21T00:00:00+00:00",
+    "source_pricing_request_id": "pricing-offline-replay-1",
+    "account_id": "OFFLINE_EXAMPLE",
+    "base_strategy_ledger_revision": 0,
+    "decision_engine": {
+      "name": "offline-replay",
+      "version": "1"
+    },
+    "confirmed_beta_positions": {},
+    "incremental_trades": {
+      "CALL": 3,
+      "PUT": -2
+    },
+    "target_beta_positions": {
+      "CALL": 3,
+      "PUT": -2
+    },
+    "orders_generated": false
+  },
+  "frames": [
+    {
+      "name": "prior-proposal-still-working",
+      "confirmed_fills": [],
+      "working_orders": [
+        {
+          "client_order_id": "old-call",
+          "proposal_id": "hedge-older",
+          "instrument": "CALL",
+          "remaining_quantity": 1
+        }
+      ],
+      "expected_status": "BLOCKED_BY_PRIOR_PROPOSAL",
+      "expected_uncovered_trades": {}
+    },
+    {
+      "name": "ready-after-prior-order-cancelled",
+      "confirmed_fills": [],
+      "working_orders": [],
+      "expected_status": "READY_TO_SUBMIT",
+      "expected_uncovered_trades": {
+        "CALL": 3,
+        "PUT": -2
+      }
+    },
+    {
+      "name": "initial-orders-working",
+      "confirmed_fills": [],
+      "working_orders": [
+        {
+          "client_order_id": "call-1",
+          "instrument": "CALL",
+          "remaining_quantity": 3
+        },
+        {
+          "client_order_id": "put-1",
+          "instrument": "PUT",
+          "remaining_quantity": -2
+        }
+      ],
+      "expected_status": "WORKING",
+      "expected_uncovered_trades": {}
+    },
+    {
+      "name": "partial-fill-still-working",
+      "confirmed_fills": [
+        {
+          "fill_id": "fill-call-1",
+          "instrument": "CALL",
+          "quantity": 1
+        }
+      ],
+      "working_orders": [
+        {
+          "client_order_id": "call-1",
+          "instrument": "CALL",
+          "remaining_quantity": 2
+        },
+        {
+          "client_order_id": "put-1",
+          "instrument": "PUT",
+          "remaining_quantity": -2
+        }
+      ],
+      "expected_status": "WORKING",
+      "expected_uncovered_trades": {}
+    },
+    {
+      "name": "cancel-confirmed-with-call-remainder",
+      "confirmed_fills": [
+        {
+          "fill_id": "fill-call-1",
+          "instrument": "CALL",
+          "quantity": 1
+        },
+        {
+          "fill_id": "fill-put-1",
+          "instrument": "PUT",
+          "quantity": -2
+        }
+      ],
+      "working_orders": [],
+      "expected_status": "READY_TO_SUBMIT",
+      "expected_uncovered_trades": {
+        "CALL": 2
+      }
+    },
+    {
+      "name": "replacement-working",
+      "confirmed_fills": [
+        {
+          "fill_id": "fill-call-1",
+          "instrument": "CALL",
+          "quantity": 1
+        },
+        {
+          "fill_id": "fill-put-1",
+          "instrument": "PUT",
+          "quantity": -2
+        }
+      ],
+      "working_orders": [
+        {
+          "client_order_id": "call-2",
+          "instrument": "CALL",
+          "remaining_quantity": 2
+        }
+      ],
+      "expected_status": "WORKING",
+      "expected_uncovered_trades": {}
+    },
+    {
+      "name": "all-fills-confirmed",
+      "confirmed_fills": [
+        {
+          "fill_id": "fill-call-1",
+          "instrument": "CALL",
+          "quantity": 1
+        },
+        {
+          "fill_id": "fill-put-1",
+          "instrument": "PUT",
+          "quantity": -2
+        },
+        {
+          "fill_id": "fill-call-2",
+          "instrument": "CALL",
+          "quantity": 2
+        }
+      ],
+      "working_orders": [],
+      "expected_status": "COMPLETE",
+      "expected_uncovered_trades": {}
+    }
+  ]
+}

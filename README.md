@@ -476,6 +476,20 @@ The status is `READY_TO_SUBMIT`, `WORKING`, `COMPLETE`, `NO_ACTION`, or
 or repricing. If broker positions or traded volume are ahead of the saved
 ledger, run the read-only reconciliation command first.
 
+The complete execution lifecycle can be verified while the market is closed:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.execution_replay `
+  protocols\execution\v1\examples\lifecycle.json `
+  --output outputs\execution_replay.json
+```
+
+The recorded frames cover an older working proposal, initial submission-ready
+state, working orders, a partial fill, confirmed cancellation with an uncovered
+remainder, a replacement order, and final completion. Frames contain cumulative
+authoritative snapshots rather than invented broker events. The replay checks
+every expected status and performs zero broker operations.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,
