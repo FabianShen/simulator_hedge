@@ -22,8 +22,8 @@ from sim_hedge.order_submission import (
     Persist,
     Submit,
     execute_registered_requests,
-    validate_pricing_freshness,
     validate_registered_requests,
+    validate_timestamp_freshness,
 )
 from sim_hedge.portfolio import PortfolioSnapshot
 from sim_hedge.strategy_ledger import ledger_from_payload
@@ -32,7 +32,6 @@ from sim_hedge.strategy_ledger import ledger_from_payload
 def main() -> None:
     load_env_file()
     parser = argparse.ArgumentParser(description="Submit reviewed Beta hedge orders")
-    parser.add_argument("pricing_request")
     parser.add_argument("beta_order_dry_run")
     parser.add_argument("order_registry")
     parser.add_argument("strategy_ledger")
@@ -47,7 +46,6 @@ def main() -> None:
         parser.error("set SIM_REST_BASE_URL or pass --base-url")
     registry_output = args.registry_output or args.order_registry
     try:
-        pricing = _object(_read(args.pricing_request), "pricing request")
         proposal = _object(_read(args.beta_order_dry_run), "Beta dry-run")
         registry = registry_from_payload(
             _object(_read(args.order_registry), "order registry")
@@ -73,7 +71,6 @@ def main() -> None:
             _write(registry_output, registry_to_payload(updated))
 
         updated, report = submit_beta_orders(
-            pricing=pricing,
             proposal=proposal,
             registry=registry,
             ledger=ledger,
@@ -101,7 +98,6 @@ def main() -> None:
 
 def submit_beta_orders(
     *,
-    pricing: Mapping[str, Any],
     proposal: Mapping[str, Any],
     registry: OrderRegistry,
     ledger: StrategyLedger,
@@ -114,7 +110,6 @@ def submit_beta_orders(
     max_snapshot_age_seconds: float = 10.0,
 ) -> tuple[OrderRegistry, dict[str, Any]]:
     requests = _validate_beta_submission(
-        pricing,
         proposal,
         registry,
         ledger,
@@ -129,7 +124,7 @@ def submit_beta_orders(
     )
     return updated, {
         "source_hedge_proposal_id": proposal.get("source_hedge_proposal_id"),
-        "source_pricing_request_id": pricing.get("requestId"),
+        "source_pricing_request_id": proposal.get("source_pricing_request_id"),
         "base_strategy_ledger_revision": ledger.revision,
         "account_id": registry.account_id,
         **outcomes,
@@ -137,7 +132,6 @@ def submit_beta_orders(
 
 
 def _validate_beta_submission(
-    pricing: Mapping[str, Any],
     proposal: Mapping[str, Any],
     registry: OrderRegistry,
     ledger: StrategyLedger,
@@ -153,8 +147,6 @@ def _validate_beta_submission(
         raise ValueError("strategy ledger and order registry accounts do not match")
     if portfolio.account.account_id != registry.account_id:
         raise ValueError("portfolio and order registry account IDs do not match")
-    if proposal.get("source_pricing_request_id") != pricing.get("requestId"):
-        raise ValueError("dry-run and pricing request IDs do not match")
     if not proposal.get("source_hedge_proposal_id"):
         raise ValueError("dry-run is missing its source hedge proposal ID")
     if proposal.get("base_strategy_ledger_revision") != ledger.revision:
@@ -165,6 +157,8 @@ def _validate_beta_submission(
         raise ValueError("expected a reviewed dry-run proposal")
     if proposal.get("orders_submitted") != 0:
         raise ValueError("dry-run already reports submitted orders")
+    if proposal.get("order_type") != "COUNTERPARTY":
+        raise ValueError("Beta dry-run order type must be COUNTERPARTY")
     if portfolio.account.status != "NORMAL":
         raise ValueError("broker account status is not NORMAL")
     if portfolio.account.risk_state not in (None, "NORMAL"):
@@ -190,9 +184,9 @@ def _validate_beta_submission(
     ) - set(registry.abandoned_client_order_ids)
     if active_intents - bound_clients != request_clients:
         raise ValueError("registry unbound intents do not exactly match the Beta dry-run")
-    validate_pricing_freshness(
-        pricing,
-        [registry.intents[client_id].instrument for client_id in request_clients],
+    validate_timestamp_freshness(
+        "hedge source market snapshot",
+        proposal.get("source_market_as_of"),
         now=now,
         max_age=max_age,
     )

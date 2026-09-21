@@ -68,6 +68,7 @@ def main() -> None:
         )
         output = {
             **proposal,
+            "source_market_as_of": pricing_payload.get("asOf"),
             "hedge_pair": list(hedge_pair),
             "strategy_universe": list(context.strategy_universe),
             "hedge_universe": list(context.hedge_universe),

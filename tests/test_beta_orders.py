@@ -7,12 +7,12 @@ from hedge_engine import (
     OrderIntent,
     apply_confirmed_fills,
     bind_broker_order,
+    build_hedge_proposal,
     empty_ledger,
     empty_order_registry,
     register_order_intent,
 )
 from sim_hedge.beta_orders import build_beta_order_dry_run
-from hedge_engine import build_hedge_proposal
 
 
 NOW = datetime(2026, 9, 21, 2, 0, tzinfo=timezone.utc)
@@ -56,9 +56,10 @@ def state(beta_quantity: int = 0):
             instrument="CALL",
             quantity=beta_quantity,
             offset="OPEN",
-            order_type="LIMIT",
-            limit_price=Decimal("0.2000"),
+            order_type="COUNTERPARTY",
+            limit_price=None,
             created_at=NOW,
+            proposal_id="hedge-old",
         )
         registry = register_order_intent(registry, beta_intent)
         registry = bind_broker_order(
@@ -76,21 +77,11 @@ def state(beta_quantity: int = 0):
                 executed_at=NOW,
             )
         )
-    ledger = apply_confirmed_fills(empty_ledger("A1"), fills)
-    return ledger, registry
+    return apply_confirmed_fills(empty_ledger("A1"), fills), registry
 
 
-def inputs(trades=None, revision=1, beta_positions=None, request_id="R1"):
-    pricing = {
-        "requestId": request_id,
-        "asOf": "2026-09-21T02:00:00Z",
-        "options": [
-            {"instrument": "CALL", "marketPrice": "0.20125", "priceTick": "0.0001"},
-            {"instrument": "PUT", "marketPrice": "0.15125", "priceTick": "0.0001"},
-            {"instrument": "ALPHA", "marketPrice": "0.1000", "priceTick": "0.0001"},
-        ],
-    }
-    hedge = {
+def accepted_proposal(trades=None, revision=1, beta_positions=None, request_id="R1"):
+    return {
         **build_hedge_proposal(
             pricing_request_id=request_id,
             account_id="A1",
@@ -99,55 +90,43 @@ def inputs(trades=None, revision=1, beta_positions=None, request_id="R1"):
             engine_name="test",
             engine_version="1",
             confirmed_beta_positions=beta_positions or {},
-            incremental_trades=trades or {"CALL": 2, "PUT": -3},
+            incremental_trades=(
+                {"CALL": 2, "PUT": -3} if trades is None else trades
+            ),
         ),
-        "hedge_universe": ["CALL", "PUT"],
+        "source_market_as_of": NOW.isoformat(),
+        "execution_batch_version": "sim-hedge/execution-batch/v1",
+        "submission_allowed": False,
     }
-    return pricing, hedge
 
 
 class BetaOrderDryRunTests(unittest.TestCase):
-    def test_registers_open_beta_intents_without_submission(self) -> None:
+    def test_registers_counterparty_intents_without_price_or_submission(self) -> None:
         ledger, registry = state()
-        pricing, hedge = inputs(revision=ledger.revision)
+        hedge = accepted_proposal(revision=ledger.revision)
 
         output, updated = build_beta_order_dry_run(
-            pricing,
-            hedge,
-            ledger,
-            registry,
-            exchange_id="SZSE",
-            max_total_contracts=5,
+            hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=5
         )
 
         self.assertEqual(
             [(item["direction"], item["offset_flag"], item["volume"]) for item in output["requests"]],
             [("BUY", "OPEN", 2), ("SELL", "OPEN", 3)],
         )
+        self.assertEqual(output["order_type"], "COUNTERPARTY")
         self.assertFalse(output["submission_allowed"])
-        self.assertEqual(output["orders_submitted"], 0)
-        self.assertTrue(all(intent.strategy == "BETA" for key, intent in updated.intents.items() if key.startswith("beta-")))
-        self.assertTrue(
-            all(
-                intent.proposal_id == hedge["proposal_id"]
-                for key, intent in updated.intents.items()
-                if key.startswith("beta-")
-            )
-        )
+        self.assertTrue(all("limit_price" not in item for item in output["requests"]))
+        beta = [value for value in updated.intents.values() if value.strategy == "BETA"]
+        self.assertTrue(all(value.proposal_id == hedge["proposal_id"] for value in beta))
 
-    def test_splits_a_trade_that_crosses_through_zero(self) -> None:
+    def test_splits_trade_that_crosses_through_zero(self) -> None:
         ledger, registry = state(beta_quantity=2)
-        pricing, hedge = inputs(
+        hedge = accepted_proposal(
             {"CALL": -5}, revision=ledger.revision, beta_positions={"CALL": 2}
         )
 
         output, _ = build_beta_order_dry_run(
-            pricing,
-            hedge,
-            ledger,
-            registry,
-            exchange_id="SZSE",
-            max_total_contracts=5,
+            hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=5
         )
 
         self.assertEqual(
@@ -156,111 +135,46 @@ class BetaOrderDryRunTests(unittest.TestCase):
         )
         self.assertEqual(output["projected_beta_positions"], {"CALL": -3})
 
-    def test_uses_simulator_native_counterparty_without_limit_price(self) -> None:
+    def test_empty_increment_is_no_action(self) -> None:
         ledger, registry = state()
-        pricing, hedge = inputs(revision=ledger.revision)
+        hedge = accepted_proposal({}, revision=ledger.revision)
 
         output, updated = build_beta_order_dry_run(
-            pricing,
-            hedge,
-            ledger,
-            registry,
-            exchange_id="SZSE",
-            order_type="COUNTERPARTY",
-            max_total_contracts=5,
+            hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=1
         )
 
-        self.assertEqual(output["order_type"], "COUNTERPARTY")
-        self.assertEqual(
-            output["price_source"], "SIMULATOR_COUNTERPARTY_RESOLUTION"
-        )
-        self.assertTrue(
-            all(request["order_type"] == "COUNTERPARTY" for request in output["requests"])
-        )
-        self.assertTrue(
-            all("limit_price" not in request for request in output["requests"])
-        )
-        self.assertTrue(
-            all(
-                intent.limit_price is None
-                for intent in updated.intents.values()
-                if intent.strategy == "BETA"
-            )
-        )
-
-    def test_rejects_unsupported_order_type(self) -> None:
-        ledger, registry = state()
-        pricing, hedge = inputs(revision=ledger.revision)
-
-        with self.assertRaisesRegex(ValueError, "unsupported Beta order type"):
-            build_beta_order_dry_run(
-                pricing,
-                hedge,
-                ledger,
-                registry,
-                exchange_id="SZSE",
-                order_type="REPRICE_MYSELF",
-                max_total_contracts=5,
-            )
-
-    def test_can_explicitly_replace_unsubmitted_limit_with_counterparty(self) -> None:
-        ledger, registry = state()
-        pricing, hedge = inputs(revision=ledger.revision)
-        limit, registered = build_beta_order_dry_run(
-            pricing,
-            hedge,
-            ledger,
-            registry,
-            exchange_id="SZSE",
-            order_type="LIMIT",
-            max_total_contracts=5,
-        )
-
-        counterparty, replaced = build_beta_order_dry_run(
-            pricing,
-            hedge,
-            ledger,
-            registered,
-            exchange_id="SZSE",
-            order_type="COUNTERPARTY",
-            max_total_contracts=5,
-            replace_unsubmitted=True,
-        )
-
-        old_ids = {request["client_order_id"] for request in limit["requests"]}
-        new_ids = {
-            request["client_order_id"] for request in counterparty["requests"]
-        }
-        self.assertTrue(old_ids.isdisjoint(new_ids))
-        self.assertEqual(set(replaced.abandoned_client_order_ids), old_ids)
+        self.assertEqual(output["requests"], [])
+        self.assertEqual(output["total_contracts"], 0)
+        self.assertEqual(updated, registry)
 
     def test_replay_is_idempotent(self) -> None:
         ledger, registry = state()
-        pricing, hedge = inputs(revision=ledger.revision)
+        hedge = accepted_proposal(revision=ledger.revision)
         first, registered = build_beta_order_dry_run(
-            pricing, hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=5
+            hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=5
         )
 
         second, replayed = build_beta_order_dry_run(
-            pricing, hedge, ledger, registered, exchange_id="SZSE", max_total_contracts=5
+            hedge, ledger, registered, exchange_id="SZSE", max_total_contracts=5
         )
 
         self.assertEqual(second, first)
         self.assertEqual(replayed, registered)
 
-    def test_explicitly_abandons_stale_unsubmitted_beta_proposal(self) -> None:
+    def test_explicitly_abandons_stale_unsubmitted_proposal(self) -> None:
         ledger, registry = state()
-        pricing, hedge = inputs(revision=ledger.revision)
+        first_hedge = accepted_proposal(revision=ledger.revision)
         first, registered = build_beta_order_dry_run(
-            pricing, hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=5
+            first_hedge,
+            ledger,
+            registry,
+            exchange_id="SZSE",
+            max_total_contracts=5,
         )
-        refreshed_pricing, refreshed_hedge = inputs(
-            revision=ledger.revision, request_id="R2"
-        )
+        second_hedge = accepted_proposal(revision=ledger.revision, request_id="R2")
 
         second, refreshed = build_beta_order_dry_run(
-            refreshed_pricing,
-            refreshed_hedge,
+            second_hedge,
             ledger,
             registered,
             exchange_id="SZSE",
@@ -268,30 +182,27 @@ class BetaOrderDryRunTests(unittest.TestCase):
             replace_unsubmitted=True,
         )
 
-        old_ids = {request["client_order_id"] for request in first["requests"]}
-        new_ids = {request["client_order_id"] for request in second["requests"]}
+        old_ids = {item["client_order_id"] for item in first["requests"]}
+        new_ids = {item["client_order_id"] for item in second["requests"]}
         self.assertTrue(old_ids.isdisjoint(new_ids))
         self.assertEqual(set(refreshed.abandoned_client_order_ids), old_ids)
-        self.assertEqual(set(second["abandoned_previous_intents"]), old_ids)
 
     def test_rejects_alpha_instrument_as_beta_trade(self) -> None:
         ledger, registry = state()
-        pricing, hedge = inputs({"ALPHA": 1}, revision=ledger.revision)
+        hedge = accepted_proposal({"ALPHA": 1}, revision=ledger.revision)
 
-        with self.assertRaisesRegex(ValueError, "outside the hedge universe"):
+        with self.assertRaisesRegex(ValueError, "owned by Alpha"):
             build_beta_order_dry_run(
-                pricing, hedge, ledger, registry,
-                exchange_id="SZSE", max_total_contracts=1,
+                hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=1
             )
 
     def test_requires_explicit_volume_limit(self) -> None:
         ledger, registry = state()
-        pricing, hedge = inputs(revision=ledger.revision)
+        hedge = accepted_proposal(revision=ledger.revision)
 
         with self.assertRaisesRegex(ValueError, "exceeds explicit limit"):
             build_beta_order_dry_run(
-                pricing, hedge, ledger, registry,
-                exchange_id="SZSE", max_total_contracts=4,
+                hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=4
             )
 
 

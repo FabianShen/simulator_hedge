@@ -129,6 +129,18 @@ def validate_pricing_freshness(
         )
 
 
+def validate_timestamp_freshness(
+    name: str, value: Any, *, now: datetime, max_age: float
+) -> None:
+    """Validate one protocol timestamp without requiring a pricing payload."""
+
+    if now.tzinfo is None:
+        raise ValueError("current time must be timezone-aware")
+    if max_age <= 0:
+        raise ValueError("max_snapshot_age_seconds must be positive")
+    _require_fresh(name, value, now=now, max_age=max_age)
+
+
 def request_for_intent(intent: OrderIntent) -> dict[str, Any]:
     request = {
         "client_order_id": intent.client_order_id,

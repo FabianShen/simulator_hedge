@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
-from decimal import Decimal, DecimalException, ROUND_HALF_UP
 from hashlib import sha256
 import json
 import os
@@ -25,22 +24,12 @@ from sim_hedge.order_submission import request_for_intent
 from sim_hedge.strategy_ledger import ledger_from_payload
 
 
-ORDER_TYPES = ("LIMIT", "COUNTERPARTY", "LAST", "MARKET")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build dry-run Beta hedge orders")
-    parser.add_argument("pricing_request")
-    parser.add_argument("hedge_plan")
+    parser.add_argument("accepted_hedge_proposal")
     parser.add_argument("strategy_ledger")
     parser.add_argument("order_registry")
     parser.add_argument("--exchange-id", required=True)
-    parser.add_argument(
-        "--order-type",
-        choices=ORDER_TYPES,
-        default="LIMIT",
-        help="simulator-native order type; only LIMIT sends a limit price",
-    )
     parser.add_argument("--max-total-contracts", required=True, type=int)
     parser.add_argument(
         "--replace-unsubmitted",
@@ -52,8 +41,7 @@ def main() -> None:
     args = parser.parse_args()
     registry_output = args.registry_output or args.order_registry
     try:
-        pricing = _object(_read(args.pricing_request), "pricing request")
-        hedge = _object(_read(args.hedge_plan), "hedge plan")
+        hedge = _object(_read(args.accepted_hedge_proposal), "hedge proposal")
         ledger = ledger_from_payload(
             _object(_read(args.strategy_ledger), "strategy ledger")
         )
@@ -61,50 +49,48 @@ def main() -> None:
             _object(_read(args.order_registry), "order registry")
         )
         dry_run, updated = build_beta_order_dry_run(
-            pricing,
             hedge,
             ledger,
             registry,
             exchange_id=args.exchange_id,
-            order_type=args.order_type,
             max_total_contracts=args.max_total_contracts,
             replace_unsubmitted=args.replace_unsubmitted,
         )
         _write(args.output, dry_run)
         _write(registry_output, registry_to_payload(updated))
-    except (ValueError, KeyError, DecimalException, json.JSONDecodeError) as exc:
+    except (ValueError, KeyError, json.JSONDecodeError) as exc:
         raise SystemExit(f"Beta order dry-run failed: {exc}") from exc
-    print(
-        f"registered {len(dry_run['requests'])} dry-run Beta intents; "
-        f"total contracts={dry_run['total_contracts']} orders submitted=0"
-    )
+    if dry_run["requests"]:
+        print(
+            f"registered {len(dry_run['requests'])} dry-run Beta intents; "
+            f"total contracts={dry_run['total_contracts']} orders submitted=0"
+        )
+    else:
+        print("Beta dry-run: NO_ACTION; intents registered=0 orders submitted=0")
     print(f"wrote dry-run requests: {args.output}")
     print(f"wrote order registry: {registry_output}")
 
 
 def build_beta_order_dry_run(
-    pricing: Mapping[str, Any],
     hedge: Mapping[str, Any],
     ledger: StrategyLedger,
     registry: OrderRegistry,
     *,
     exchange_id: str,
-    order_type: str = "LIMIT",
     max_total_contracts: int,
     replace_unsubmitted: bool = False,
 ) -> tuple[dict[str, Any], OrderRegistry]:
     if not exchange_id:
         raise ValueError("exchange_id must not be empty")
-    order_type = order_type.upper()
-    if order_type not in ORDER_TYPES:
-        raise ValueError("unsupported Beta order type")
     if max_total_contracts <= 0:
         raise ValueError("max_total_contracts must be positive")
-    request_id = str(pricing.get("requestId") or "")
+    request_id = str(hedge.get("source_pricing_request_id") or "")
     if registry.account_id != ledger.account_id:
         raise ValueError("strategy ledger and order registry accounts do not match")
     if not request_id:
         raise ValueError("pricing request ID must not be empty")
+    if hedge.get("execution_batch_version") != "sim-hedge/execution-batch/v1":
+        raise ValueError("Beta orders require an accepted hedge proposal")
     incremental = validate_hedge_proposal(
         hedge,
         pricing_request_id=request_id,
@@ -117,19 +103,14 @@ def build_beta_order_dry_run(
     if not strategy_intents_fully_filled(registry, ledger, "ALPHA"):
         raise ValueError("Alpha intents are not fully confirmed by broker trades")
 
-    hedge_universe = _string_set(hedge.get("hedge_universe"), "hedge universe")
     alpha_instruments = set(ledger.alpha_positions)
-    metadata = {
-        str(_object(option, "pricing option").get("instrument") or ""): option
-        for option in _list(pricing.get("options"), "pricing options")
-    }
-    created_at = _datetime(str(pricing.get("asOf") or ""))
+    created_at = _datetime(str(hedge.get("created_at") or ""))
     legs: list[tuple[str, int, str]] = []
     for instrument, raw_quantity in incremental.items():
         code = str(instrument)
         quantity = _integer(raw_quantity, f"Beta trade {code}")
-        if code not in hedge_universe or code in alpha_instruments:
-            raise ValueError(f"Beta trade {code} is outside the hedge universe")
+        if code in alpha_instruments:
+            raise ValueError(f"Beta trade {code} is owned by Alpha")
         legs.extend(_split_trade(ledger.beta_positions.get(code, 0), quantity, code))
 
     total_contracts = sum(abs(quantity) for _, quantity, _ in legs)
@@ -143,22 +124,11 @@ def build_beta_order_dry_run(
     requests = []
     generated_client_ids: set[str] = set()
     for sequence, (instrument, quantity, offset) in enumerate(legs, start=1):
-        option = _object(metadata.get(instrument), f"pricing option {instrument}")
-        limit_price = None
-        if order_type == "LIMIT":
-            tick = Decimal(str(option["priceTick"]))
-            market_price = Decimal(str(option["marketPrice"]))
-            if tick <= 0 or market_price <= 0:
-                raise ValueError(f"invalid market price or tick for {instrument}")
-            limit_price = (market_price / tick).quantize(
-                Decimal("1"), rounding=ROUND_HALF_UP
-            ) * tick
         client_order_id = _client_order_id(
             str(hedge["proposal_id"]),
             instrument,
             offset,
             sequence,
-            order_type,
         )
         intent = OrderIntent(
             client_order_id=client_order_id,
@@ -168,8 +138,8 @@ def build_beta_order_dry_run(
             instrument=instrument,
             quantity=quantity,
             offset=offset,
-            order_type=order_type,
-            limit_price=limit_price,
+            order_type="COUNTERPARTY",
+            limit_price=None,
             created_at=created_at,
             proposal_id=str(hedge["proposal_id"]),
         )
@@ -211,12 +181,9 @@ def build_beta_order_dry_run(
             "source_pricing_request_id": request_id,
             "base_strategy_ledger_revision": ledger.revision,
             "strategy": "BETA",
-            "price_source": (
-                "RECORDED_MID_ROUNDED_TO_TICK"
-                if order_type == "LIMIT"
-                else f"SIMULATOR_{order_type}_RESOLUTION"
-            ),
-            "order_type": order_type,
+            "source_market_as_of": hedge.get("source_market_as_of"),
+            "price_source": "SIMULATOR_COUNTERPARTY_RESOLUTION",
+            "order_type": "COUNTERPARTY",
             "submission_allowed": False,
             "orders_submitted": 0,
             "max_total_contracts": max_total_contracts,
@@ -250,11 +217,8 @@ def _client_order_id(
     instrument: str,
     offset: str,
     sequence: int,
-    order_type: str,
 ) -> str:
-    identity = f"{proposal_id}:{instrument}:{offset}:{sequence}"
-    if order_type != "LIMIT":
-        identity = f"{identity}:{order_type}"
+    identity = f"{proposal_id}:{instrument}:{offset}:{sequence}:COUNTERPARTY"
     digest = sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"beta-{instrument}-{digest}"
 
@@ -280,29 +244,22 @@ def _object(value: Any, name: str) -> Mapping[str, Any]:
     return value
 
 
-def _list(value: Any, name: str) -> list[Any]:
-    if not isinstance(value, list):
-        raise ValueError(f"{name} must be a list")
-    return value
-
-
-def _string_set(value: Any, name: str) -> set[str]:
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ValueError(f"{name} must be a list of strings")
-    return set(value)
-
-
 def _integer(value: Any, name: str) -> int:
-    number = Decimal(str(value))
-    if number != number.to_integral_value():
+    if isinstance(value, bool):
         raise ValueError(f"{name} must be an integer")
-    return int(number)
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if number != value:
+        raise ValueError(f"{name} must be an integer")
+    return number
 
 
 def _datetime(value: str) -> datetime:
     result = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if result.tzinfo is None:
-        raise ValueError("pricing asOf must be timezone-aware")
+        raise ValueError("hedge proposal created_at must be timezone-aware")
     return result
 
 

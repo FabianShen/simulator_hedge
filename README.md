@@ -356,25 +356,23 @@ contacting the simulator:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge.beta_orders `
-  outputs\live-pricing-request.json `
-  outputs\hedge_plan.json `
+  outputs\accepted_hedge_proposal.json `
   outputs\strategy_ledger.json `
   outputs\order_registry.json `
   --exchange-id SZSE `
-  --order-type COUNTERPARTY `
   --max-total-contracts 10 `
   --output outputs\beta_order_dry_run.json
 ```
 
 The explicit contract limit must be chosen for the test being reviewed. The
-command verifies the pricing request and ledger revision used by the hedge
-plan, requires fully confirmed Alpha fills, excludes every Alpha instrument,
+command verifies the accepted proposal and its ledger revision, requires fully
+confirmed Alpha fills, excludes every Alpha instrument,
 and saves each Beta intent in the existing registry. A trade that crosses an
 existing Beta position through zero is split into a `CLOSE` order followed by
 an `OPEN` order. The output always has `submission_allowed: false` and performs
-no REST requests. `COUNTERPARTY`, `LAST`, and `MARKET` omit `limit_price` and
-delegate one-time price resolution and protection to the simulator. `LIMIT`
-remains available and uses the recorded mid rounded to the price tick.
+no REST requests. Beta execution uses only `COUNTERPARTY`, omits `limit_price`,
+and delegates one-time price resolution and protection to the simulator. The
+standalone pricing-request file is not an execution input.
 
 If an unsubmitted Beta proposal becomes stale, rebuild pricing and the hedge
 plan, then regenerate it explicitly with `--replace-unsubmitted`. The old
@@ -383,8 +381,7 @@ bound or submitted:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge.beta_orders `
-  outputs\live-pricing-request.json `
-  outputs\hedge_plan.json `
+  outputs\accepted_hedge_proposal.json `
   outputs\strategy_ledger.json `
   outputs\order_registry.json `
   --exchange-id SZSE `
@@ -398,7 +395,6 @@ confirmation and contract cap:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge.beta_submit `
-  outputs\live-pricing-request.json `
   outputs\beta_order_dry_run.json `
   outputs\order_registry.json `
   outputs\strategy_ledger.json `
@@ -410,7 +406,9 @@ confirmation and contract cap:
 Unlike Alpha submission, this requires broker positions to equal the confirmed
 Alpha-plus-Beta ledger rather than requiring an empty account. It also requires
 healthy account/risk state, no active orders, fully confirmed Alpha ownership,
-fresh prices, exact registered requests, and no unknown outcomes. It persists
+a fresh hedge source-market timestamp, exact registered requests, and no
+unknown outcomes. The simulator resolves and validates the current
+counterparty price. The command persists
 every accepted order ID before continuing and stops on the first rejected or
 unknown result.
 

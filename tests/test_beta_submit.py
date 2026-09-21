@@ -41,9 +41,10 @@ def setup():
         instrument="BETA",
         quantity=1,
         offset="OPEN",
-        order_type="LIMIT",
-        limit_price=Decimal("0.2000"),
+        order_type="COUNTERPARTY",
+        limit_price=None,
         created_at=NOW,
+        proposal_id="hedge-example",
     )
     registry = register_order_intent(empty_order_registry("A1"), alpha)
     registry = bind_broker_order(
@@ -65,28 +66,13 @@ def setup():
             ),
         ),
     )
-    pricing = {
-        "requestId": "R1",
-        "asOf": NOW.isoformat(),
-        "underlying": {
-            "instrument": "ETF",
-            "spot": 3.4,
-            "observedAt": NOW.isoformat(),
-        },
-        "options": [
-            {
-                "instrument": "BETA",
-                "marketPrice": "0.2000",
-                "priceTick": "0.0001",
-                "observedAt": NOW.isoformat(),
-            }
-        ],
-    }
     proposal = {
         "source_hedge_proposal_id": "hedge-example",
         "source_pricing_request_id": "R1",
+        "source_market_as_of": NOW.isoformat(),
         "base_strategy_ledger_revision": ledger.revision,
         "strategy": "BETA",
+        "order_type": "COUNTERPARTY",
         "submission_allowed": False,
         "orders_submitted": 0,
         "requests": [request_for_intent(beta)],
@@ -114,16 +100,15 @@ def setup():
         ),
         active_orders=(),
     )
-    return pricing, proposal, registry, ledger, portfolio
+    return proposal, registry, ledger, portfolio
 
 
 class BetaSubmissionTests(unittest.TestCase):
     def test_submits_registered_beta_without_requiring_empty_portfolio(self) -> None:
-        pricing, proposal, registry, ledger, portfolio = setup()
+        proposal, registry, ledger, portfolio = setup()
         persisted = []
 
         updated, report = submit_beta_orders(
-            pricing=pricing,
             proposal=proposal,
             registry=registry,
             ledger=ledger,
@@ -140,13 +125,12 @@ class BetaSubmissionTests(unittest.TestCase):
         self.assertEqual(len(persisted), 1)
 
     def test_rejects_broker_position_mismatch_before_submission(self) -> None:
-        pricing, proposal, registry, ledger, portfolio = setup()
+        proposal, registry, ledger, portfolio = setup()
         calls = []
         mismatched = PortfolioSnapshot(portfolio.account, (), ())
 
         with self.assertRaisesRegex(ValueError, "do not match"):
             submit_beta_orders(
-                pricing=pricing,
                 proposal=proposal,
                 registry=registry,
                 ledger=ledger,
@@ -161,14 +145,13 @@ class BetaSubmissionTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_unknown_outcome_is_persisted_and_blocks_retry(self) -> None:
-        pricing, proposal, registry, ledger, portfolio = setup()
+        proposal, registry, ledger, portfolio = setup()
         persisted = []
 
         def timeout(request):
             raise SimTradingUnknownOutcomeError("timeout")
 
         updated, report = submit_beta_orders(
-            pricing=pricing,
             proposal=proposal,
             registry=registry,
             ledger=ledger,
@@ -183,6 +166,25 @@ class BetaSubmissionTests(unittest.TestCase):
         self.assertEqual(updated.unknown_client_order_ids, ("beta-1",))
         self.assertEqual(len(report["unknown"]), 1)
         self.assertEqual(len(persisted), 1)
+
+    def test_rejects_stale_hedge_snapshot_before_submission(self) -> None:
+        proposal, registry, ledger, portfolio = setup()
+        calls = []
+
+        with self.assertRaisesRegex(ValueError, "hedge source market snapshot is stale"):
+            submit_beta_orders(
+                proposal=proposal,
+                registry=registry,
+                ledger=ledger,
+                portfolio=portfolio,
+                confirmed_account_id="A1",
+                submit=calls.append,
+                persist=lambda value: None,
+                now=NOW + timedelta(seconds=11),
+                max_total_contracts=1,
+            )
+
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
