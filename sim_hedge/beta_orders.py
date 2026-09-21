@@ -21,7 +21,11 @@ from hedge_engine import (
 )
 from hedge_engine import validate_hedge_proposal
 from sim_hedge.order_registry import registry_from_payload, registry_to_payload
+from sim_hedge.order_submission import request_for_intent
 from sim_hedge.strategy_ledger import ledger_from_payload
+
+
+ORDER_TYPES = ("LIMIT", "COUNTERPARTY", "LAST", "MARKET")
 
 
 def main() -> None:
@@ -31,6 +35,12 @@ def main() -> None:
     parser.add_argument("strategy_ledger")
     parser.add_argument("order_registry")
     parser.add_argument("--exchange-id", required=True)
+    parser.add_argument(
+        "--order-type",
+        choices=ORDER_TYPES,
+        default="LIMIT",
+        help="simulator-native order type; only LIMIT sends a limit price",
+    )
     parser.add_argument("--max-total-contracts", required=True, type=int)
     parser.add_argument(
         "--replace-unsubmitted",
@@ -56,6 +66,7 @@ def main() -> None:
             ledger,
             registry,
             exchange_id=args.exchange_id,
+            order_type=args.order_type,
             max_total_contracts=args.max_total_contracts,
             replace_unsubmitted=args.replace_unsubmitted,
         )
@@ -78,11 +89,15 @@ def build_beta_order_dry_run(
     registry: OrderRegistry,
     *,
     exchange_id: str,
+    order_type: str = "LIMIT",
     max_total_contracts: int,
     replace_unsubmitted: bool = False,
 ) -> tuple[dict[str, Any], OrderRegistry]:
     if not exchange_id:
         raise ValueError("exchange_id must not be empty")
+    order_type = order_type.upper()
+    if order_type not in ORDER_TYPES:
+        raise ValueError("unsupported Beta order type")
     if max_total_contracts <= 0:
         raise ValueError("max_total_contracts must be positive")
     request_id = str(pricing.get("requestId") or "")
@@ -129,18 +144,21 @@ def build_beta_order_dry_run(
     generated_client_ids: set[str] = set()
     for sequence, (instrument, quantity, offset) in enumerate(legs, start=1):
         option = _object(metadata.get(instrument), f"pricing option {instrument}")
-        tick = Decimal(str(option["priceTick"]))
-        market_price = Decimal(str(option["marketPrice"]))
-        if tick <= 0 or market_price <= 0:
-            raise ValueError(f"invalid market price or tick for {instrument}")
-        limit_price = (market_price / tick).quantize(
-            Decimal("1"), rounding=ROUND_HALF_UP
-        ) * tick
+        limit_price = None
+        if order_type == "LIMIT":
+            tick = Decimal(str(option["priceTick"]))
+            market_price = Decimal(str(option["marketPrice"]))
+            if tick <= 0 or market_price <= 0:
+                raise ValueError(f"invalid market price or tick for {instrument}")
+            limit_price = (market_price / tick).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            ) * tick
         client_order_id = _client_order_id(
             str(hedge["proposal_id"]),
             instrument,
             offset,
             sequence,
+            order_type,
         )
         intent = OrderIntent(
             client_order_id=client_order_id,
@@ -150,14 +168,14 @@ def build_beta_order_dry_run(
             instrument=instrument,
             quantity=quantity,
             offset=offset,
-            order_type="LIMIT",
+            order_type=order_type,
             limit_price=limit_price,
             created_at=created_at,
             proposal_id=str(hedge["proposal_id"]),
         )
         current = register_order_intent(current, intent)
         generated_client_ids.add(client_order_id)
-        requests.append(_request(intent))
+        requests.append(request_for_intent(intent))
 
     unbound_before = (
         set(registry.intents)
@@ -193,7 +211,12 @@ def build_beta_order_dry_run(
             "source_pricing_request_id": request_id,
             "base_strategy_ledger_revision": ledger.revision,
             "strategy": "BETA",
-            "price_source": "RECORDED_MID_ROUNDED_TO_TICK",
+            "price_source": (
+                "RECORDED_MID_ROUNDED_TO_TICK"
+                if order_type == "LIMIT"
+                else f"SIMULATOR_{order_type}_RESOLUTION"
+            ),
+            "order_type": order_type,
             "submission_allowed": False,
             "orders_submitted": 0,
             "max_total_contracts": max_total_contracts,
@@ -222,27 +245,16 @@ def _split_trade(current: int, trade: int, instrument: str) -> list[tuple[str, i
     return result
 
 
-def _request(intent: OrderIntent) -> dict[str, Any]:
-    return {
-        "client_order_id": intent.client_order_id,
-        "account_id": intent.account_id,
-        "exchange_id": intent.exchange_id,
-        "symbol": intent.instrument,
-        "direction": "BUY" if intent.quantity > 0 else "SELL",
-        "offset_flag": intent.offset,
-        "order_type": intent.order_type,
-        "limit_price": str(intent.limit_price),
-        "volume": abs(intent.quantity),
-    }
-
-
 def _client_order_id(
     proposal_id: str,
     instrument: str,
     offset: str,
     sequence: int,
+    order_type: str,
 ) -> str:
     identity = f"{proposal_id}:{instrument}:{offset}:{sequence}"
+    if order_type != "LIMIT":
+        identity = f"{identity}:{order_type}"
     digest = sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"beta-{instrument}-{digest}"
 

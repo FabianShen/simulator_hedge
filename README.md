@@ -361,6 +361,7 @@ contacting the simulator:
   outputs\strategy_ledger.json `
   outputs\order_registry.json `
   --exchange-id SZSE `
+  --order-type COUNTERPARTY `
   --max-total-contracts 10 `
   --output outputs\beta_order_dry_run.json
 ```
@@ -371,7 +372,9 @@ plan, requires fully confirmed Alpha fills, excludes every Alpha instrument,
 and saves each Beta intent in the existing registry. A trade that crosses an
 existing Beta position through zero is split into a `CLOSE` order followed by
 an `OPEN` order. The output always has `submission_allowed: false` and performs
-no REST requests.
+no REST requests. `COUNTERPARTY`, `LAST`, and `MARKET` omit `limit_price` and
+delegate one-time price resolution and protection to the simulator. `LIMIT`
+remains available and uses the recorded mid rounded to the price tick.
 
 If an unsubmitted Beta proposal becomes stale, rebuild pricing and the hedge
 plan, then regenerate it explicitly with `--replace-unsubmitted`. The old

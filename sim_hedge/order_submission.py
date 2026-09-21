@@ -130,7 +130,7 @@ def validate_pricing_freshness(
 
 
 def request_for_intent(intent: OrderIntent) -> dict[str, Any]:
-    return {
+    request = {
         "client_order_id": intent.client_order_id,
         "account_id": intent.account_id,
         "exchange_id": intent.exchange_id,
@@ -138,9 +138,11 @@ def request_for_intent(intent: OrderIntent) -> dict[str, Any]:
         "direction": "BUY" if intent.quantity > 0 else "SELL",
         "offset_flag": intent.offset,
         "order_type": intent.order_type,
-        "limit_price": None if intent.limit_price is None else str(intent.limit_price),
         "volume": abs(intent.quantity),
     }
+    if intent.limit_price is not None:
+        request["limit_price"] = str(intent.limit_price)
+    return request
 
 
 def _require_fresh(name: str, value: Any, *, now: datetime, max_age: float) -> None:

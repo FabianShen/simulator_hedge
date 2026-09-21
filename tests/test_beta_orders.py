@@ -156,6 +156,84 @@ class BetaOrderDryRunTests(unittest.TestCase):
         )
         self.assertEqual(output["projected_beta_positions"], {"CALL": -3})
 
+    def test_uses_simulator_native_counterparty_without_limit_price(self) -> None:
+        ledger, registry = state()
+        pricing, hedge = inputs(revision=ledger.revision)
+
+        output, updated = build_beta_order_dry_run(
+            pricing,
+            hedge,
+            ledger,
+            registry,
+            exchange_id="SZSE",
+            order_type="COUNTERPARTY",
+            max_total_contracts=5,
+        )
+
+        self.assertEqual(output["order_type"], "COUNTERPARTY")
+        self.assertEqual(
+            output["price_source"], "SIMULATOR_COUNTERPARTY_RESOLUTION"
+        )
+        self.assertTrue(
+            all(request["order_type"] == "COUNTERPARTY" for request in output["requests"])
+        )
+        self.assertTrue(
+            all("limit_price" not in request for request in output["requests"])
+        )
+        self.assertTrue(
+            all(
+                intent.limit_price is None
+                for intent in updated.intents.values()
+                if intent.strategy == "BETA"
+            )
+        )
+
+    def test_rejects_unsupported_order_type(self) -> None:
+        ledger, registry = state()
+        pricing, hedge = inputs(revision=ledger.revision)
+
+        with self.assertRaisesRegex(ValueError, "unsupported Beta order type"):
+            build_beta_order_dry_run(
+                pricing,
+                hedge,
+                ledger,
+                registry,
+                exchange_id="SZSE",
+                order_type="REPRICE_MYSELF",
+                max_total_contracts=5,
+            )
+
+    def test_can_explicitly_replace_unsubmitted_limit_with_counterparty(self) -> None:
+        ledger, registry = state()
+        pricing, hedge = inputs(revision=ledger.revision)
+        limit, registered = build_beta_order_dry_run(
+            pricing,
+            hedge,
+            ledger,
+            registry,
+            exchange_id="SZSE",
+            order_type="LIMIT",
+            max_total_contracts=5,
+        )
+
+        counterparty, replaced = build_beta_order_dry_run(
+            pricing,
+            hedge,
+            ledger,
+            registered,
+            exchange_id="SZSE",
+            order_type="COUNTERPARTY",
+            max_total_contracts=5,
+            replace_unsubmitted=True,
+        )
+
+        old_ids = {request["client_order_id"] for request in limit["requests"]}
+        new_ids = {
+            request["client_order_id"] for request in counterparty["requests"]
+        }
+        self.assertTrue(old_ids.isdisjoint(new_ids))
+        self.assertEqual(set(replaced.abandoned_client_order_ids), old_ids)
+
     def test_replay_is_idempotent(self) -> None:
         ledger, registry = state()
         pricing, hedge = inputs(revision=ledger.revision)
