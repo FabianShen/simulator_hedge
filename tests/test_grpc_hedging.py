@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from hedge_service.grpc_server import create_server
+from hedging.v1 import hedging_pb2
 from sim_hedge.adapters.grpc_hedging import GrpcHedgeClient, HedgeServiceError
+from sim_hedge.adapters.grpc_hedging import _proposal_from_proto
 
 
 REQUEST_PATH = (
@@ -87,6 +89,10 @@ class GrpcHedgingIntegrationTests(unittest.TestCase):
                 HedgeServiceError, "UNAVAILABLE|DEADLINE_EXCEEDED"
             ):
                 client.health()
+
+    def test_response_without_source_market_time_is_rejected(self) -> None:
+        with self.assertRaisesRegex(HedgeServiceError, "source_market_as_of"):
+            _proposal_from_proto(hedging_pb2.HedgeProposal())
 
 
 if __name__ == "__main__":

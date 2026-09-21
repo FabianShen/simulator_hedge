@@ -95,6 +95,8 @@ class GrpcHedgeClient:
 
 
 def _proposal_from_proto(response: hedging_pb2.HedgeProposal) -> dict[str, Any]:
+    if not response.HasField("source_market_as_of"):
+        raise HedgeServiceError("hedge response has no source_market_as_of")
     return {
         "protocol_version": response.protocol_version,
         "proposal_id": response.proposal_id,
