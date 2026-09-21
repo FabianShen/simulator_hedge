@@ -54,6 +54,8 @@ changing the position semantics of this contract.
 
 An executor must track its working and filled quantities by proposal and client
 order ID. Re-reading the same proposal must not create duplicate orders.
+Proposal ownership must be persisted with each Beta intent before submission;
+it must not be inferred later from an order ID or instrument.
 
 ## Ownership
 

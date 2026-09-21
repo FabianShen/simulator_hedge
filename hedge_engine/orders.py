@@ -22,6 +22,7 @@ class OrderIntent:
     order_type: str
     limit_price: Decimal | None
     created_at: datetime
+    proposal_id: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -52,6 +53,10 @@ class OrderIntent:
             raise ValueError("non-LIMIT order must not have limit_price")
         if self.created_at.tzinfo is None:
             raise ValueError("order created_at must be timezone-aware")
+        if self.proposal_id is not None and not self.proposal_id:
+            raise ValueError("order proposal_id must not be empty")
+        if self.strategy == "ALPHA" and self.proposal_id is not None:
+            raise ValueError("Alpha order intent cannot belong to a hedge proposal")
 
 
 @dataclass(frozen=True)
@@ -251,6 +256,7 @@ def supersede_order_intent(
         original.quantity,
         original.offset,
         original.order_type,
+        original.proposal_id,
     )
     comparable_replacement = (
         replacement.account_id,
@@ -260,6 +266,7 @@ def supersede_order_intent(
         replacement.quantity,
         replacement.offset,
         replacement.order_type,
+        replacement.proposal_id,
     )
     if comparable_original != comparable_replacement:
         raise ValueError("replacement intent does not match the original intent")

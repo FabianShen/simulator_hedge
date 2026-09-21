@@ -153,6 +153,7 @@ def build_beta_order_dry_run(
             order_type="LIMIT",
             limit_price=limit_price,
             created_at=created_at,
+            proposal_id=str(hedge["proposal_id"]),
         )
         current = register_order_intent(current, intent)
         generated_client_ids.add(client_order_id)

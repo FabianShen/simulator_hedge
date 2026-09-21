@@ -72,6 +72,11 @@ def intent_from_payload(payload: Mapping[str, Any]) -> OrderIntent:
             None if raw_price in (None, "") else Decimal(str(raw_price))
         ),
         created_at=_datetime(str(payload.get("created_at") or "")),
+        proposal_id=(
+            None
+            if payload.get("proposal_id") in (None, "")
+            else str(payload["proposal_id"])
+        ),
     )
 
 
@@ -93,6 +98,7 @@ def registry_to_payload(registry: OrderRegistry) -> dict[str, Any]:
                     None if intent.limit_price is None else str(intent.limit_price)
                 ),
                 "created_at": intent.created_at.isoformat(),
+                "proposal_id": intent.proposal_id,
             }
             for client_id, intent in sorted(registry.intents.items())
         },

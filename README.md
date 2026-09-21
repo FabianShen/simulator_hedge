@@ -434,6 +434,15 @@ proposal therefore cannot duplicate a working order. Working orders belonging
 to an older proposal produce `BLOCKED_BY_PRIOR_PROPOSAL` and explicit
 cancellation candidate IDs, but the model never cancels or replaces them.
 
+Every newly generated Beta `OrderIntent` stores its hedge `proposal_id` in the
+order registry. `sim_hedge.execution_state.assess_broker_execution()` joins
+that ownership with the confirmed strategy ledger and the read-only portfolio
+snapshot. It refuses unknown submissions, unregistered active orders,
+unreconciled partial fills, broker/ledger position differences, and Beta fills
+from another proposal. Legacy registry JSON remains readable; replaying the
+same old proposal does not infer ownership that was never recorded. An old
+active Beta order without proposal ownership is rejected for manual review.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,

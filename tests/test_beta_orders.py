@@ -127,6 +127,13 @@ class BetaOrderDryRunTests(unittest.TestCase):
         self.assertFalse(output["submission_allowed"])
         self.assertEqual(output["orders_submitted"], 0)
         self.assertTrue(all(intent.strategy == "BETA" for key, intent in updated.intents.items() if key.startswith("beta-")))
+        self.assertTrue(
+            all(
+                intent.proposal_id == hedge["proposal_id"]
+                for key, intent in updated.intents.items()
+                if key.startswith("beta-")
+            )
+        )
 
     def test_splits_a_trade_that_crosses_through_zero(self) -> None:
         ledger, registry = state(beta_quantity=2)
