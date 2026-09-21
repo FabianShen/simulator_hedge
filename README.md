@@ -87,8 +87,11 @@ resulting target Beta positions, and current portfolio Greeks. The required
 identity and position equation are documented in
 `protocols/hedging/v1/README.md`. It always records `orders_generated: false`.
 This market/pricing/risk process never calls the trading API. A separate order
-application may take as long as necessary to move the confirmed Beta position
-toward the published target; only broker-confirmed fills update the ledger.
+application may take as long as necessary to execute one accepted
+`incremental_trades` proposal; only broker-confirmed fills update the ledger.
+`target_beta_positions` is a derived audit equation, not the execution goal.
+Later live proposals must not make the order application chase a changing
+absolute target.
 The pricing worker passes the exact market input and its matching pricing result
 to the hedge client. Hedge RPC failures publish `NOT_READY` and do not stop the
 live feed. Omitting `--hedge-target` retains the in-process reference calculation
@@ -420,6 +423,16 @@ The next hedge cycle is allowed only when `safe_for_hedging`, `position_match`,
 and `all_fills_complete` are all true. The older
 `python -m sim_hedge.alpha_reconcile` command remains as a compatible alias.
 The combined report defaults to `outputs/portfolio_reconciliation.json`.
+
+The pure `execution_engine` package models an accepted incremental proposal
+without connecting to the broker. `start_execution_batch()` validates and
+freezes the proposal against its base ledger revision. `assess_execution()`
+then subtracts proposal-attributed confirmed fills and signed working
+remainders from that frozen increment. Its `uncovered_trades` are the only
+quantities eligible for a later order-building step. Re-reading the same
+proposal therefore cannot duplicate a working order. Working orders belonging
+to an older proposal produce `BLOCKED_BY_PRIOR_PROPOSAL` and explicit
+cancellation candidate IDs, but the model never cancels or replaces them.
 
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical

@@ -29,6 +29,12 @@ target_beta_positions
 All quantities are signed integer contracts. Positive means long/buy and
 negative means short/sell. Zero positions are omitted.
 
+The executable signal is `incremental_trades`. `target_beta_positions` is a
+derived audit value that proves which confirmed ledger the increment was based
+on; an execution application must not treat it as a continuously changing
+absolute target. Once accepted, each incremental proposal is an immutable
+execution batch.
+
 `base_strategy_ledger_revision` and `confirmed_beta_positions` must both match
 the executor's current confirmed ledger. A mismatch makes the proposal stale,
 even when its market data is otherwise fresh.
@@ -54,7 +60,7 @@ order ID. Re-reading the same proposal must not create duplicate orders.
 - The hedge engine owns risk calculations and the incremental proposal.
 - The strategy ledger owns broker-confirmed Alpha and Beta positions.
 - The execution application owns working orders, partial fills, cancellation,
-  replacement prices, and progress toward the target.
+  replacement prices, and progress through one accepted increment.
 - Only reconciled broker fills may change confirmed Beta.
 
 The additional risk diagnostics emitted by the reference implementation are
