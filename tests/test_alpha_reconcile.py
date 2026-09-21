@@ -39,13 +39,18 @@ def broker_order() -> BrokerOrder:
         order_id="O1",
         client_order_id="alpha-1",
         account_id="A1",
+        exchange_id="SZSE",
         instrument="9001",
         direction="SELL",
         offset="OPEN",
         order_type="LIMIT",
         limit_price=Decimal("0.1234"),
         total_volume=2,
+        traded_volume=2,
+        remaining_volume=0,
+        cancelled_volume=0,
         status="FILLED",
+        created_at=NOW,
     )
 
 

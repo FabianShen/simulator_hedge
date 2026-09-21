@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Mapping
@@ -61,6 +61,7 @@ class OrderRegistry:
     intents: Mapping[str, OrderIntent]
     broker_orders: Mapping[str, str]
     unknown_client_order_ids: tuple[str, ...] = ()
+    superseded_client_order_ids: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.account_id:
@@ -85,6 +86,20 @@ class OrderRegistry:
             raise ValueError("unknown submission references an unknown intent")
         if unknown & set(clients):
             raise ValueError("a bound order cannot have unknown submission state")
+        superseded = dict(self.superseded_client_order_ids)
+        if not set(superseded) <= set(self.intents) or not set(
+            superseded.values()
+        ) <= set(self.intents):
+            raise ValueError("supersession references an unknown intent")
+        if any(original == replacement for original, replacement in superseded.items()):
+            raise ValueError("an intent cannot supersede itself")
+        if len(set(superseded.values())) != len(superseded):
+            raise ValueError("one replacement intent cannot supersede multiple intents")
+        if set(superseded) & set(superseded.values()):
+            raise ValueError("supersession chains are not supported")
+        supersession_clients = set(superseded) | set(superseded.values())
+        if not supersession_clients <= set(clients):
+            raise ValueError("superseded and replacement intents must be bound")
 
     @property
     def order_strategies(self) -> dict[str, str]:
@@ -95,7 +110,7 @@ class OrderRegistry:
 
 
 def empty_order_registry(account_id: str) -> OrderRegistry:
-    return OrderRegistry(account_id, 0, {}, {}, ())
+    return OrderRegistry(account_id, 0, {}, {}, (), {})
 
 
 def register_order_intent(
@@ -120,6 +135,7 @@ def register_order_intent(
         intents,
         dict(registry.broker_orders),
         registry.unknown_client_order_ids,
+        dict(registry.superseded_client_order_ids),
     )
 
 
@@ -162,6 +178,7 @@ def bind_broker_order(
         dict(registry.intents),
         bindings,
         unknown,
+        dict(registry.superseded_client_order_ids),
     )
 
 
@@ -182,6 +199,67 @@ def mark_submission_unknown(
         dict(registry.intents),
         dict(registry.broker_orders),
         (*registry.unknown_client_order_ids, client_order_id),
+        dict(registry.superseded_client_order_ids),
+    )
+
+
+def supersede_order_intent(
+    registry: OrderRegistry,
+    *,
+    original_client_order_id: str,
+    replacement_client_order_id: str,
+) -> OrderRegistry:
+    """Retain a cancelled intent while replacing it with an audited intent."""
+
+    original = registry.intents.get(original_client_order_id)
+    replacement = registry.intents.get(replacement_client_order_id)
+    if original is None or replacement is None:
+        raise ValueError("both original and replacement intents must be registered")
+    if original_client_order_id not in registry.broker_orders.values():
+        raise ValueError("original intent must be bound to a broker order")
+    if replacement_client_order_id not in registry.broker_orders.values():
+        raise ValueError("replacement intent must be bound to a broker order")
+    if (
+        original_client_order_id in registry.unknown_client_order_ids
+        or replacement_client_order_id in registry.unknown_client_order_ids
+    ):
+        raise ValueError("an unknown submission cannot participate in supersession")
+    comparable_original = (
+        original.account_id,
+        original.strategy,
+        original.exchange_id,
+        original.instrument,
+        original.quantity,
+        original.offset,
+        original.order_type,
+    )
+    comparable_replacement = (
+        replacement.account_id,
+        replacement.strategy,
+        replacement.exchange_id,
+        replacement.instrument,
+        replacement.quantity,
+        replacement.offset,
+        replacement.order_type,
+    )
+    if comparable_original != comparable_replacement:
+        raise ValueError("replacement intent does not match the original intent")
+    previous = registry.superseded_client_order_ids.get(original_client_order_id)
+    if previous is not None:
+        if previous != replacement_client_order_id:
+            raise ValueError("original intent already has a different replacement")
+        return registry
+    if replacement_client_order_id in registry.superseded_client_order_ids:
+        raise ValueError("a superseded intent cannot be used as a replacement")
+    superseded = dict(registry.superseded_client_order_ids)
+    superseded[original_client_order_id] = replacement_client_order_id
+    return OrderRegistry(
+        registry.account_id,
+        registry.revision + 1,
+        dict(registry.intents),
+        dict(registry.broker_orders),
+        registry.unknown_client_order_ids,
+        superseded,
     )
 
 
@@ -205,7 +283,10 @@ def strategy_intents_fully_filled(
         for order_id, client_id in registry.broker_orders.items()
     }
     intents = [
-        intent for intent in registry.intents.values() if intent.strategy == strategy
+        intent
+        for intent in registry.intents.values()
+        if intent.strategy == strategy
+        and intent.client_order_id not in registry.superseded_client_order_ids
     ]
     return bool(intents) and all(
         (order_id := client_orders.get(intent.client_order_id)) is not None

@@ -193,6 +193,26 @@ written for diagnosis and exits with status 2. Use `--initialize-ledger` only
 for this first broker replay; omit it on later runs so the confirmed ledger is
 loaded and each `trade_id` remains idempotent across restarts.
 
+If a registered Alpha limit order is cancelled with zero fills and you
+deliberately replace it manually, record that ownership explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_adopt `
+  outputs\order_registry.json `
+  outputs\strategy_ledger.json `
+  --supersede alpha-90007076-9ce8f22e804c3d77 `
+  --replacement-order O20260921C6C08EAEDB7849C1
+```
+
+This command does not place or cancel an order. It reads both broker orders and
+confirmed trades, requires the original to be fully cancelled with zero fills,
+and requires the replacement to be fully filled with the same account,
+exchange, instrument, side, offset, type, and quantity. The different manual
+limit price is retained. The original intent remains in the registry with an
+explicit supersession link, and an adoption audit is written to
+`outputs/alpha_adoption.json`. Never use adoption merely to force an
+unexplained broker/ledger mismatch to pass.
+
 Persist order ownership before any future submission:
 
 ```powershell

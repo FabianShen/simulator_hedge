@@ -238,6 +238,7 @@ def _verify_order_matches_intent(order: BrokerOrder, intent: OrderIntent) -> Non
     expected_direction = "BUY" if intent.quantity > 0 else "SELL"
     expected = (
         intent.account_id,
+        intent.exchange_id,
         intent.instrument,
         expected_direction,
         intent.offset,
@@ -247,6 +248,7 @@ def _verify_order_matches_intent(order: BrokerOrder, intent: OrderIntent) -> Non
     )
     actual = (
         order.account_id,
+        order.exchange_id,
         order.instrument,
         order.direction,
         order.offset,

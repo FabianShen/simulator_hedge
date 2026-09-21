@@ -44,13 +44,18 @@ class BrokerOrder:
     order_id: str
     client_order_id: str
     account_id: str
+    exchange_id: str
     instrument: str
     direction: str
     offset: str
     order_type: str
     limit_price: Decimal | None
     total_volume: int
+    traded_volume: int
+    remaining_volume: int
+    cancelled_volume: int
     status: str
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -161,6 +166,11 @@ class SimTradingPortfolioSource:
             query["cursor"] = cursor
         raw = self._get(f"/api/orders/page?{urlencode(query)}")
         return normalize_order_page(raw, account_id)
+
+    def load_order(self, order_id: str, account_id: str) -> BrokerOrder:
+        if not order_id:
+            raise ValueError("order_id must not be empty")
+        return normalize_order(self._get(f"/api/orders/{order_id}"), account_id)
 
     def submit_etf_option_order(
         self, request: Mapping[str, Any]
@@ -393,6 +403,9 @@ def normalize_order_page(raw: Any, account_id: str) -> BrokerOrderPage:
 
 
 def normalize_order(raw: Mapping[str, Any], account_id: str) -> BrokerOrder:
+    raw = _unwrap(raw)
+    if not isinstance(raw, Mapping):
+        raise SimTradingError("order is not an object")
     actual_account = str(raw.get("account_id") or "")
     if actual_account != str(account_id):
         raise SimTradingError(
@@ -408,11 +421,17 @@ def normalize_order(raw: Mapping[str, Any], account_id: str) -> BrokerOrder:
     total_volume = _decimal(raw.get("total_volume"), "total_volume")
     if total_volume != total_volume.to_integral_value() or total_volume <= 0:
         raise SimTradingError("total_volume must be a positive integer")
+    traded_volume = _whole_volume(raw.get("traded_volume"), "traded_volume")
+    remaining_volume = _whole_volume(raw.get("remaining_volume"), "remaining_volume")
+    cancelled_volume = _whole_volume(raw.get("cancelled_volume"), "cancelled_volume")
+    if traded_volume + remaining_volume + cancelled_volume != int(total_volume):
+        raise SimTradingError("broker order volumes do not reconcile")
     raw_price = raw.get("limit_price")
     return BrokerOrder(
         order_id=order_id,
         client_order_id=client_order_id,
         account_id=actual_account,
+        exchange_id=str(raw.get("exchange_id") or ""),
         instrument=instrument,
         direction=str(raw.get("direction") or "").upper(),
         offset=str(raw.get("offset_flag") or "").upper(),
@@ -421,7 +440,11 @@ def normalize_order(raw: Mapping[str, Any], account_id: str) -> BrokerOrder:
             None if raw_price in (None, "") else _decimal(raw_price, "limit_price")
         ),
         total_volume=int(total_volume),
+        traded_volume=traded_volume,
+        remaining_volume=remaining_volume,
+        cancelled_volume=cancelled_volume,
         status=str(raw.get("status") or "").upper(),
+        created_at=_datetime(raw.get("created_at")),
     )
 
 
@@ -592,6 +615,13 @@ def _decimal(value: Any, field: str) -> Decimal:
 
 def _optional_decimal(value: Any) -> Decimal | None:
     return None if value is None or value == "" else _decimal(value, "decimal field")
+
+
+def _whole_volume(value: Any, field: str) -> int:
+    number = _decimal(value, field)
+    if number != number.to_integral_value() or number < 0:
+        raise SimTradingError(f"{field} must be a non-negative integer")
+    return int(number)
 
 
 def _date(value: Any) -> date | None:

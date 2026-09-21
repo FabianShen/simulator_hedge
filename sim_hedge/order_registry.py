@@ -98,6 +98,9 @@ def registry_to_payload(registry: OrderRegistry) -> dict[str, Any]:
         },
         "broker_orders": dict(sorted(registry.broker_orders.items())),
         "unknown_client_order_ids": list(registry.unknown_client_order_ids),
+        "superseded_client_order_ids": dict(
+            sorted(registry.superseded_client_order_ids.items())
+        ),
     }
 
 
@@ -120,12 +123,18 @@ def registry_from_payload(payload: Mapping[str, Any]) -> OrderRegistry:
     raw_unknown = payload.get("unknown_client_order_ids", [])
     if not isinstance(raw_unknown, list):
         raise ValueError("unknown_client_order_ids must be a list")
+    raw_superseded = _object(
+        payload.get("superseded_client_order_ids", {}), "superseded client order IDs"
+    )
     return OrderRegistry(
         account_id=account_id,
         revision=_integer(payload.get("revision"), "registry revision"),
         intents=intents,
         broker_orders={str(key): str(value) for key, value in raw_bindings.items()},
         unknown_client_order_ids=tuple(str(value) for value in raw_unknown),
+        superseded_client_order_ids={
+            str(key): str(value) for key, value in raw_superseded.items()
+        },
     )
 
 

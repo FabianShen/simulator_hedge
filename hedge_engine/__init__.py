@@ -23,6 +23,7 @@ from hedge_engine.orders import (
     mark_submission_unknown,
     register_order_intent,
     strategy_intents_fully_filled,
+    supersede_order_intent,
 )
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "integerize_delta_gamma_hedge",
     "register_order_intent",
     "strategy_intents_fully_filled",
+    "supersede_order_intent",
 ]
