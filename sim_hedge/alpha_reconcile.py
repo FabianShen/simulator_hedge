@@ -19,6 +19,7 @@ from hedge_engine import (
     apply_confirmed_fills,
     bind_broker_order,
     empty_ledger,
+    strategy_intents_fully_filled,
 )
 from sim_hedge.adapters.sim_trading import (
     BrokerOrder,
@@ -195,7 +196,9 @@ def reconcile_alpha_state(
         for client_id in registry.broker_orders.values()
         if client_id not in previous_registry.broker_orders.values()
     )
-    alpha_fill_complete = _alpha_fill_complete(registry, updated_ledger)
+    alpha_fill_complete = strategy_intents_fully_filled(
+        registry, updated_ledger, "ALPHA"
+    )
     account_healthy = (
         portfolio.account.status == "NORMAL"
         and portfolio.account.risk_state in (None, "NORMAL")
@@ -319,29 +322,6 @@ def _strategy_positions(ledger: StrategyLedger) -> dict[str, int]:
     for instrument, quantity in ledger.beta_positions.items():
         result[instrument] = result.get(instrument, 0) + quantity
     return dict(sorted((key, value) for key, value in result.items() if value))
-
-
-def _alpha_fill_complete(
-    registry: OrderRegistry, ledger: StrategyLedger
-) -> bool:
-    order_quantities: dict[str, int] = {}
-    for fill in ledger.applied_trades.values():
-        if fill.strategy == "ALPHA":
-            order_quantities[fill.order_id] = (
-                order_quantities.get(fill.order_id, 0) + fill.quantity
-            )
-    client_orders = {
-        client_id: order_id
-        for order_id, client_id in registry.broker_orders.items()
-    }
-    alpha_intents = [
-        intent for intent in registry.intents.values() if intent.strategy == "ALPHA"
-    ]
-    return bool(alpha_intents) and all(
-        (order_id := client_orders.get(intent.client_order_id)) is not None
-        and order_quantities.get(order_id, 0) == intent.quantity
-        for intent in alpha_intents
-    )
 
 
 def _read(path: str | Path) -> Any:

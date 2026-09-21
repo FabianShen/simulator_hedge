@@ -1,0 +1,275 @@
+"""Build and register dry-run Beta hedge orders without submitting them."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime
+from decimal import Decimal, DecimalException, ROUND_HALF_UP
+from hashlib import sha256
+import json
+import os
+from pathlib import Path
+from typing import Any, Mapping
+
+from hedge_engine import (
+    OrderIntent,
+    OrderRegistry,
+    StrategyLedger,
+    register_order_intent,
+    strategy_intents_fully_filled,
+)
+from sim_hedge.order_registry import registry_from_payload, registry_to_payload
+from sim_hedge.strategy_ledger import ledger_from_payload
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build dry-run Beta hedge orders")
+    parser.add_argument("pricing_request")
+    parser.add_argument("hedge_plan")
+    parser.add_argument("strategy_ledger")
+    parser.add_argument("order_registry")
+    parser.add_argument("--exchange-id", required=True)
+    parser.add_argument("--max-total-contracts", required=True, type=int)
+    parser.add_argument("--output", default="outputs/beta_order_dry_run.json")
+    parser.add_argument("--registry-output")
+    args = parser.parse_args()
+    registry_output = args.registry_output or args.order_registry
+    try:
+        pricing = _object(_read(args.pricing_request), "pricing request")
+        hedge = _object(_read(args.hedge_plan), "hedge plan")
+        ledger = ledger_from_payload(
+            _object(_read(args.strategy_ledger), "strategy ledger")
+        )
+        registry = registry_from_payload(
+            _object(_read(args.order_registry), "order registry")
+        )
+        dry_run, updated = build_beta_order_dry_run(
+            pricing,
+            hedge,
+            ledger,
+            registry,
+            exchange_id=args.exchange_id,
+            max_total_contracts=args.max_total_contracts,
+        )
+        _write(args.output, dry_run)
+        _write(registry_output, registry_to_payload(updated))
+    except (ValueError, KeyError, DecimalException, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Beta order dry-run failed: {exc}") from exc
+    print(
+        f"registered {len(dry_run['requests'])} dry-run Beta intents; "
+        f"total contracts={dry_run['total_contracts']} orders submitted=0"
+    )
+    print(f"wrote dry-run requests: {args.output}")
+    print(f"wrote order registry: {registry_output}")
+
+
+def build_beta_order_dry_run(
+    pricing: Mapping[str, Any],
+    hedge: Mapping[str, Any],
+    ledger: StrategyLedger,
+    registry: OrderRegistry,
+    *,
+    exchange_id: str,
+    max_total_contracts: int,
+) -> tuple[dict[str, Any], OrderRegistry]:
+    if not exchange_id:
+        raise ValueError("exchange_id must not be empty")
+    if max_total_contracts <= 0:
+        raise ValueError("max_total_contracts must be positive")
+    request_id = str(pricing.get("requestId") or "")
+    if not request_id or hedge.get("source_pricing_request_id") != request_id:
+        raise ValueError("hedge plan and pricing request IDs do not match")
+    if hedge.get("source_strategy_ledger_revision") != ledger.revision:
+        raise ValueError("hedge plan and strategy ledger revisions do not match")
+    if hedge.get("orders_generated") is not False:
+        raise ValueError("expected an offline hedge plan")
+    if registry.account_id != ledger.account_id:
+        raise ValueError("strategy ledger and order registry accounts do not match")
+    if registry.unknown_client_order_ids:
+        raise ValueError("order registry contains unknown submission outcomes")
+    if not strategy_intents_fully_filled(registry, ledger, "ALPHA"):
+        raise ValueError("Alpha intents are not fully confirmed by broker trades")
+
+    tradable = _object(hedge.get("tradable_solution"), "tradable hedge solution")
+    raw_trades = _object(tradable.get("incremental_trades"), "incremental trades")
+    hedge_universe = _string_set(hedge.get("hedge_universe"), "hedge universe")
+    alpha_instruments = set(ledger.alpha_positions)
+    metadata = {
+        str(_object(option, "pricing option").get("instrument") or ""): option
+        for option in _list(pricing.get("options"), "pricing options")
+    }
+    created_at = _datetime(str(pricing.get("asOf") or ""))
+    legs: list[tuple[str, int, str]] = []
+    incremental: dict[str, int] = {}
+    for instrument, raw_quantity in raw_trades.items():
+        code = str(instrument)
+        quantity = _integer(raw_quantity, f"Beta trade {code}")
+        if code not in hedge_universe or code in alpha_instruments:
+            raise ValueError(f"Beta trade {code} is outside the hedge universe")
+        incremental[code] = quantity
+        legs.extend(_split_trade(ledger.beta_positions.get(code, 0), quantity, code))
+
+    total_contracts = sum(abs(quantity) for _, quantity, _ in legs)
+    if total_contracts > max_total_contracts:
+        raise ValueError(
+            f"Beta total volume {total_contracts} exceeds explicit limit "
+            f"{max_total_contracts}"
+        )
+
+    current = registry
+    requests = []
+    generated_client_ids: set[str] = set()
+    for sequence, (instrument, quantity, offset) in enumerate(legs, start=1):
+        option = _object(metadata.get(instrument), f"pricing option {instrument}")
+        tick = Decimal(str(option["priceTick"]))
+        market_price = Decimal(str(option["marketPrice"]))
+        if tick <= 0 or market_price <= 0:
+            raise ValueError(f"invalid market price or tick for {instrument}")
+        limit_price = (market_price / tick).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        ) * tick
+        client_order_id = _client_order_id(
+            request_id,
+            ledger.revision,
+            instrument,
+            offset,
+            sequence,
+        )
+        intent = OrderIntent(
+            client_order_id=client_order_id,
+            account_id=ledger.account_id,
+            strategy="BETA",
+            exchange_id=exchange_id,
+            instrument=instrument,
+            quantity=quantity,
+            offset=offset,
+            order_type="LIMIT",
+            limit_price=limit_price,
+            created_at=created_at,
+        )
+        current = register_order_intent(current, intent)
+        generated_client_ids.add(client_order_id)
+        requests.append(_request(intent))
+
+    unbound_before = set(registry.intents) - set(registry.broker_orders.values())
+    unrelated_unbound = unbound_before - generated_client_ids
+    if unrelated_unbound:
+        raise ValueError(
+            "order registry has earlier unbound intents: "
+            + ", ".join(sorted(unrelated_unbound))
+        )
+    projected = dict(ledger.beta_positions)
+    for instrument, quantity in incremental.items():
+        updated_quantity = projected.get(instrument, 0) + quantity
+        if updated_quantity:
+            projected[instrument] = updated_quantity
+        else:
+            projected.pop(instrument, None)
+    return (
+        {
+            "source_pricing_request_id": request_id,
+            "source_strategy_ledger_revision": ledger.revision,
+            "strategy": "BETA",
+            "price_source": "RECORDED_MID_ROUNDED_TO_TICK",
+            "submission_allowed": False,
+            "orders_submitted": 0,
+            "max_total_contracts": max_total_contracts,
+            "total_contracts": total_contracts,
+            "current_beta_positions": dict(ledger.beta_positions),
+            "incremental_trades": incremental,
+            "projected_beta_positions": projected,
+            "requests": requests,
+        },
+        current,
+    )
+
+
+def _split_trade(current: int, trade: int, instrument: str) -> list[tuple[str, int, str]]:
+    if trade == 0:
+        return []
+    if current == 0 or (current > 0) == (trade > 0):
+        return [(instrument, trade, "OPEN")]
+    closing = min(abs(current), abs(trade))
+    close_quantity = closing if trade > 0 else -closing
+    result = [(instrument, close_quantity, "CLOSE")]
+    remainder = trade - close_quantity
+    if remainder:
+        result.append((instrument, remainder, "OPEN"))
+    return result
+
+
+def _request(intent: OrderIntent) -> dict[str, Any]:
+    return {
+        "client_order_id": intent.client_order_id,
+        "account_id": intent.account_id,
+        "exchange_id": intent.exchange_id,
+        "symbol": intent.instrument,
+        "direction": "BUY" if intent.quantity > 0 else "SELL",
+        "offset_flag": intent.offset,
+        "order_type": intent.order_type,
+        "limit_price": str(intent.limit_price),
+        "volume": abs(intent.quantity),
+    }
+
+
+def _client_order_id(
+    request_id: str,
+    ledger_revision: int,
+    instrument: str,
+    offset: str,
+    sequence: int,
+) -> str:
+    identity = f"{request_id}:{ledger_revision}:{instrument}:{offset}:{sequence}"
+    digest = sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return f"beta-{instrument}-{digest}"
+
+
+def _read(path: str) -> Any:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _write(path: str, payload: Mapping[str, Any]) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _object(value: Any, name: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{name} is not an object")
+    return value
+
+
+def _list(value: Any, name: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise ValueError(f"{name} must be a list")
+    return value
+
+
+def _string_set(value: Any, name: str) -> set[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{name} must be a list of strings")
+    return set(value)
+
+
+def _integer(value: Any, name: str) -> int:
+    number = Decimal(str(value))
+    if number != number.to_integral_value():
+        raise ValueError(f"{name} must be an integer")
+    return int(number)
+
+
+def _datetime(value: str) -> datetime:
+    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if result.tzinfo is None:
+        raise ValueError("pricing asOf must be timezone-aware")
+    return result
+
+
+if __name__ == "__main__":
+    main()

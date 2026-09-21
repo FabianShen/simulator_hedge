@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Mapping
 
-from hedge_engine.accounting import STRATEGIES
+from hedge_engine.accounting import STRATEGIES, StrategyLedger
 
 
 @dataclass(frozen=True)
@@ -182,4 +182,33 @@ def mark_submission_unknown(
         dict(registry.intents),
         dict(registry.broker_orders),
         (*registry.unknown_client_order_ids, client_order_id),
+    )
+
+
+def strategy_intents_fully_filled(
+    registry: OrderRegistry, ledger: StrategyLedger, strategy: str
+) -> bool:
+    """Return whether every saved intent for one strategy has confirmed fills."""
+
+    if strategy not in STRATEGIES:
+        raise ValueError("strategy must be ALPHA or BETA")
+    if registry.account_id != ledger.account_id:
+        raise ValueError("order registry and strategy ledger accounts do not match")
+    order_quantities: dict[str, int] = {}
+    for fill in ledger.applied_trades.values():
+        if fill.strategy == strategy:
+            order_quantities[fill.order_id] = (
+                order_quantities.get(fill.order_id, 0) + fill.quantity
+            )
+    client_orders = {
+        client_id: order_id
+        for order_id, client_id in registry.broker_orders.items()
+    }
+    intents = [
+        intent for intent in registry.intents.values() if intent.strategy == strategy
+    ]
+    return bool(intents) and all(
+        (order_id := client_orders.get(intent.client_order_id)) is not None
+        and order_quantities.get(order_id, 0) == intent.quantity
+        for intent in intents
     )

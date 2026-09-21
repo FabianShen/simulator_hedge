@@ -261,6 +261,28 @@ positions separate. Hedge planning accepts only a `CONFIRMED` ledger, requires
 rejects active broker orders. Alpha instruments contribute risk but are removed
 from the nearest-DTE Beta universe. The hedge-plan file creates no broker orders.
 
+Convert that reviewed hedge plan into registered Beta order intents without
+contacting the simulator:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.beta_orders `
+  outputs\live-pricing-request.json `
+  outputs\hedge_plan.json `
+  outputs\strategy_ledger.json `
+  outputs\order_registry.json `
+  --exchange-id SZSE `
+  --max-total-contracts 10 `
+  --output outputs\beta_order_dry_run.json
+```
+
+The explicit contract limit must be chosen for the test being reviewed. The
+command verifies the pricing request and ledger revision used by the hedge
+plan, requires fully confirmed Alpha fills, excludes every Alpha instrument,
+and saves each Beta intent in the existing registry. A trade that crosses an
+existing Beta position through zero is split into a `CLOSE` order followed by
+an `OPEN` order. The output always has `submission_allowed: false` and performs
+no REST requests. Actual Beta submission is intentionally a later increment.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,

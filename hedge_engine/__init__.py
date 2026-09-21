@@ -22,6 +22,7 @@ from hedge_engine.orders import (
     empty_order_registry,
     mark_submission_unknown,
     register_order_intent,
+    strategy_intents_fully_filled,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "mark_submission_unknown",
     "integerize_delta_gamma_hedge",
     "register_order_intent",
+    "strategy_intents_fully_filled",
 ]
