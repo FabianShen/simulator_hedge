@@ -85,6 +85,7 @@ class HedgeRequest:
 @dataclass(frozen=True)
 class HedgeResult:
     proposal: Mapping[str, object]
+    market_as_of: datetime
     hedge_pair: tuple[str, str]
     alpha_risk: Greeks
     confirmed_beta_risk: Greeks
@@ -161,6 +162,7 @@ class ReferenceHedgeEngine:
         )
         return HedgeResult(
             proposal=proposal,
+            market_as_of=request.market_as_of,
             hedge_pair=pair,
             alpha_risk=decision.alpha_risk,
             confirmed_beta_risk=decision.current_hedge_risk,

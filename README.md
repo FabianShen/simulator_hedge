@@ -65,8 +65,16 @@ same long-running market process can publish live portfolio Greeks and a
 versioned incremental Beta proposal after every accepted pricing result:
 
 ```powershell
+# Terminal 1
+.\.venv\Scripts\python.exe -m pricing_engine.grpc_server
+
+# Terminal 2
+.\.venv\Scripts\python.exe -m hedge_service.grpc_server
+
+# Terminal 3
 .\.venv\Scripts\python.exe -m sim_hedge `
   --pricing-target 127.0.0.1:50051 `
+  --hedge-target 127.0.0.1:50052 `
   --strategy-ledger outputs\strategy_ledger.json `
   --risk-output outputs\live_risk.json
 ```
@@ -81,6 +89,10 @@ identity and position equation are documented in
 This market/pricing/risk process never calls the trading API. A separate order
 application may take as long as necessary to move the confirmed Beta position
 toward the published target; only broker-confirmed fills update the ledger.
+The pricing worker passes the exact market input and its matching pricing result
+to the hedge client. Hedge RPC failures publish `NOT_READY` and do not stop the
+live feed. Omitting `--hedge-target` retains the in-process reference calculation
+for development; production-style testing should exercise the external service.
 
 Portfolio state comes from the simulated-trading system, not from the market
 feed. The first read-only boundary fetches the authoritative absolute snapshot

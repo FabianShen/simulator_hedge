@@ -48,6 +48,9 @@ class GrpcHedgingIntegrationTests(unittest.TestCase):
             proposal = client.propose(payload)
 
         self.assertEqual(proposal["created_at"], CREATED_AT.isoformat())
+        self.assertEqual(
+            proposal["source_market_as_of"], "2026-09-21T03:00:00+00:00"
+        )
         self.assertEqual(proposal["base_strategy_ledger_revision"], 6)
         self.assertEqual(proposal["confirmed_beta_positions"], {})
         self.assertEqual(proposal["incremental_trades"], {"CALL": 3, "PUT": 1})

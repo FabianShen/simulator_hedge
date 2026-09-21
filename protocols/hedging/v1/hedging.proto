@@ -89,4 +89,5 @@ message HedgeProposal {
   Greeks portfolio_risk = 18;
   Greeks risk_at_target_beta = 19;
   double normalized_residual = 20;
+  google.protobuf.Timestamp source_market_as_of = 21;
 }

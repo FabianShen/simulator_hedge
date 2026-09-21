@@ -84,6 +84,26 @@ class ContinuousPricingWorkerTests(unittest.TestCase):
         self.assertEqual(worker.health.stale_responses, 1)
         self.assertIsNone(worker.latest())
 
+    def test_passes_the_exact_input_to_the_priced_callback(self) -> None:
+        client = FakePricingClient()
+        completed = []
+        worker = ContinuousPricingWorker(
+            client,
+            lambda request_id, as_of: _request(request_id, as_of),
+            interval=0.01,
+            on_priced=lambda request, result: completed.append((request, result)),
+            clock=lambda: NOW,
+        )
+        worker.start()
+        try:
+            worker.request_update()
+            self.assertTrue(client.completed.wait(1.0))
+        finally:
+            worker.stop()
+
+        self.assertEqual(completed[0][0]["requestId"], completed[0][1].request_id)
+        self.assertEqual(completed[0][0]["asOf"], "2026-09-18T02:00:00Z")
+
 
 def _request(request_id: str, as_of: datetime) -> dict:
     return {

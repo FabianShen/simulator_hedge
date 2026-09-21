@@ -33,6 +33,10 @@ negative means short/sell. Zero positions are omitted.
 the executor's current confirmed ledger. A mismatch makes the proposal stale,
 even when its market data is otherwise fresh.
 
+`source_market_as_of` is the timestamp of the exact market snapshot used by the
+pricing request. Consumers must use it, rather than the later proposal creation
+time, when enforcing execution freshness.
+
 ## Identity and replay
 
 `proposal_id` is a deterministic hash of the protocol version, pricing request,

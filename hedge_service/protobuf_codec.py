@@ -75,6 +75,9 @@ def response_to_proto(
     )
     created_at = datetime.fromisoformat(str(proposal["created_at"]))
     message.created_at.FromDatetime(created_at.astimezone(timezone.utc))
+    message.source_market_as_of.FromDatetime(
+        result.market_as_of.astimezone(timezone.utc)
+    )
     _set_greeks(message.alpha_risk, result.alpha_risk)
     _set_greeks(message.confirmed_beta_risk, result.confirmed_beta_risk)
     _set_greeks(message.portfolio_risk, result.portfolio_risk)

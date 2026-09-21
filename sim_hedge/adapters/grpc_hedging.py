@@ -6,7 +6,7 @@ from typing import Any, Mapping
 import grpc
 from google.protobuf import json_format
 
-from hedge_engine import HEDGE_PROPOSAL_VERSION
+from hedge_engine import HEDGE_PROPOSAL_VERSION, validate_hedge_proposal
 from hedging.v1 import hedging_pb2, hedging_pb2_grpc
 
 
@@ -73,7 +73,15 @@ class GrpcHedgeClient:
             raise HedgeServiceError(
                 f"response request_id mismatch: {response.request_id!r}"
             )
-        return _proposal_from_proto(response)
+        proposal = _proposal_from_proto(response)
+        validate_hedge_proposal(
+            proposal,
+            pricing_request_id=message.source_pricing_request_id,
+            account_id=message.account_id,
+            base_ledger_revision=message.base_strategy_ledger_revision,
+            confirmed_beta_positions=dict(message.confirmed_beta_positions),
+        )
+        return proposal
 
     def close(self) -> None:
         if self._owns_channel:
@@ -95,6 +103,9 @@ def _proposal_from_proto(response: hedging_pb2.HedgeProposal) -> dict[str, Any]:
             tzinfo=timezone.utc
         ).isoformat(),
         "source_pricing_request_id": response.source_pricing_request_id,
+        "source_market_as_of": response.source_market_as_of.ToDatetime(
+            tzinfo=timezone.utc
+        ).isoformat(),
         "account_id": response.account_id,
         "base_strategy_ledger_revision": response.base_strategy_ledger_revision,
         "decision_engine": {

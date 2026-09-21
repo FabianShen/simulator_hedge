@@ -9,12 +9,14 @@ from pathlib import Path
 
 from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
+from sim_hedge.adapters.grpc_hedging import GrpcHedgeClient, HedgeServiceError
 from sim_hedge.adapters.grpc_pricing import GrpcPricingClient, PricingServiceError
 from sim_hedge.config import load_env_file
 from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
 from sim_hedge.live_risk import build_live_risk_snapshot, write_live_risk_snapshot
+from sim_hedge.hedge_request import build_hedge_request
 from sim_hedge.option_chain import subscription, summarize
 from sim_hedge.pricing_request import (
     PricingRequestError,
@@ -74,9 +76,16 @@ def main() -> None:
     parser.add_argument("--pricing-timeout", type=float, default=0.5)
     parser.add_argument("--pricing-max-age", type=float, default=2.0)
     parser.add_argument(
+        "--hedge-target",
+        default=os.getenv("HEDGE_TARGET", ""),
+        metavar="HOST:PORT",
+        help="use the external hedge service; example: 127.0.0.1:50052",
+    )
+    parser.add_argument("--hedge-timeout", type=float, default=0.5)
+    parser.add_argument(
         "--strategy-ledger",
         metavar="PATH",
-        help="publish live Greeks and a desired Beta target from this confirmed ledger",
+        help="publish live Greeks and a Beta target from this confirmed ledger",
     )
     parser.add_argument(
         "--risk-output",
@@ -108,10 +117,14 @@ def main() -> None:
         parser.error("--pricing-timeout must be positive")
     if args.pricing_max_age <= 0:
         parser.error("--pricing-max-age must be positive")
+    if args.hedge_timeout <= 0:
+        parser.error("--hedge-timeout must be positive")
     if args.stop_after_recording and not args.record_pricing:
         parser.error("--stop-after-recording requires --record-pricing")
     if args.strategy_ledger and not args.pricing_target:
         parser.error("--strategy-ledger requires --pricing-target")
+    if args.hedge_target and not args.strategy_ledger:
+        parser.error("--hedge-target requires --strategy-ledger")
     # Review option chain without activate live feed
     if args.check_options:
         contracts = load_option_chain(args.check_options, args.mode, parser)
@@ -142,6 +155,7 @@ def main() -> None:
         expiry_time=args.expiry_time,
     )
     pricing_client: GrpcPricingClient | None = None
+    hedge_client: GrpcHedgeClient | None = None
     pricing_worker: ContinuousPricingWorker | None = None
 
     if args.pricing_target:
@@ -159,6 +173,23 @@ def main() -> None:
             f"({health.protocol_version})",
             flush=True,
         )
+        if args.hedge_target:
+            hedge_client = GrpcHedgeClient(
+                args.hedge_target,
+                timeout=args.hedge_timeout,
+            )
+            try:
+                hedge_health = hedge_client.health()
+            except HedgeServiceError as exc:
+                hedge_client.close()
+                pricing_client.close()
+                raise SystemExit(f"hedge service unavailable: {exc}") from exc
+            print(
+                f"hedge service: {hedge_health['engine_name']} "
+                f"{hedge_health['engine_version']} "
+                f"({hedge_health['protocol_version']})",
+                flush=True,
+            )
 
         def make_pricing_request(request_id, as_of):
             if universe is None:
@@ -174,7 +205,7 @@ def main() -> None:
                 ),
             )
 
-        def display_pricing(result) -> None:
+        def display_pricing(request, result) -> None:
             if args.strategy_ledger:
                 try:
                     ledger_payload = json.loads(
@@ -183,23 +214,41 @@ def main() -> None:
                     if not isinstance(ledger_payload, dict):
                         raise ValueError("strategy ledger is not an object")
                     ledger = ledger_from_payload(ledger_payload)
-                    if universe is None:
-                        raise ValueError("strategy universe not selected")
-                    underlying_quote = market_state.snapshot().get(args.underlying)
-                    if underlying_quote is None:
-                        raise ValueError("underlying quote is missing")
-                    risk = build_live_risk_snapshot(
-                        result,
-                        universe,
-                        ledger,
-                        spot=quote_price(underlying_quote),
-                    )
+                    if hedge_client is not None:
+                        risk = hedge_client.propose(
+                            build_hedge_request(request, result, ledger)
+                        )
+                        risk = {
+                            **risk,
+                            "status": "READY",
+                            "pricing_calculated_at": (
+                                result.calculated_at.isoformat()
+                            ),
+                            "published_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    else:
+                        if universe is None:
+                            raise ValueError("strategy universe not selected")
+                        underlying_quote = market_state.snapshot().get(args.underlying)
+                        if underlying_quote is None:
+                            raise ValueError("underlying quote is missing")
+                        risk = build_live_risk_snapshot(
+                            result,
+                            universe,
+                            ledger,
+                            spot=quote_price(underlying_quote),
+                        )
+                        risk = {
+                            **risk,
+                            "source_market_as_of": request.get("asOf"),
+                        }
                 except (
                     OSError,
                     ValueError,
                     KeyError,
                     DecimalException,
                     json.JSONDecodeError,
+                    HedgeServiceError,
                 ) as exc:
                     risk = {
                         "status": "NOT_READY",
@@ -234,7 +283,7 @@ def main() -> None:
             make_pricing_request,
             interval=args.pricing_interval,
             max_result_age=timedelta(seconds=args.pricing_max_age),
-            on_result=display_pricing,
+            on_priced=display_pricing,
         )
 
     def on_quote(quote) -> None:
@@ -331,6 +380,8 @@ def main() -> None:
                 )
         if pricing_client is not None:
             pricing_client.close()
+        if hedge_client is not None:
+            hedge_client.close()
         print(f"feed health: {source.health}", flush=True)
         readiness = market_state.readiness(
             now=datetime.now(timezone.utc),

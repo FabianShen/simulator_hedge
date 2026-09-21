@@ -35,6 +35,7 @@ class ContinuousPricingWorker:
         interval: float = 1.0,
         max_result_age: timedelta = timedelta(seconds=2),
         on_result: Callable[[PricingBatch], None] | None = None,
+        on_priced: Callable[[Mapping[str, Any], PricingBatch], None] | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic_clock: Callable[[], float] = monotonic,
     ) -> None:
@@ -47,6 +48,7 @@ class ContinuousPricingWorker:
         self._interval = interval
         self._max_result_age = max_result_age
         self._on_result = on_result
+        self._on_priced = on_priced
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic_clock
         self._wake = Event()
@@ -180,6 +182,13 @@ class ContinuousPricingWorker:
             except Exception as exc:
                 self._record_failure(
                     f"pricing result callback failed: {type(exc).__name__}: {exc}"
+                )
+        if self._on_priced is not None:
+            try:
+                self._on_priced(request, response)
+            except Exception as exc:
+                self._record_failure(
+                    f"priced snapshot callback failed: {type(exc).__name__}: {exc}"
                 )
 
     def _record_failure(self, error: str) -> None:

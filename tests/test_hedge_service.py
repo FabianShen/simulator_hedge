@@ -33,6 +33,7 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         self.assertEqual(
             response.source_pricing_request_id, request.source_pricing_request_id
         )
+        self.assertEqual(response.source_market_as_of, request.market_as_of)
         self.assertEqual(
             response.base_strategy_ledger_revision,
             request.base_strategy_ledger_revision,
