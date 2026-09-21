@@ -101,6 +101,7 @@ def registry_to_payload(registry: OrderRegistry) -> dict[str, Any]:
         "superseded_client_order_ids": dict(
             sorted(registry.superseded_client_order_ids.items())
         ),
+        "abandoned_client_order_ids": list(registry.abandoned_client_order_ids),
     }
 
 
@@ -126,6 +127,9 @@ def registry_from_payload(payload: Mapping[str, Any]) -> OrderRegistry:
     raw_superseded = _object(
         payload.get("superseded_client_order_ids", {}), "superseded client order IDs"
     )
+    raw_abandoned = payload.get("abandoned_client_order_ids", [])
+    if not isinstance(raw_abandoned, list):
+        raise ValueError("abandoned_client_order_ids must be a list")
     return OrderRegistry(
         account_id=account_id,
         revision=_integer(payload.get("revision"), "registry revision"),
@@ -135,6 +139,7 @@ def registry_from_payload(payload: Mapping[str, Any]) -> OrderRegistry:
         superseded_client_order_ids={
             str(key): str(value) for key, value in raw_superseded.items()
         },
+        abandoned_client_order_ids=tuple(str(value) for value in raw_abandoned),
     )
 
 

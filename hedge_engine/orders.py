@@ -62,6 +62,7 @@ class OrderRegistry:
     broker_orders: Mapping[str, str]
     unknown_client_order_ids: tuple[str, ...] = ()
     superseded_client_order_ids: Mapping[str, str] = field(default_factory=dict)
+    abandoned_client_order_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.account_id:
@@ -100,6 +101,17 @@ class OrderRegistry:
         supersession_clients = set(superseded) | set(superseded.values())
         if not supersession_clients <= set(clients):
             raise ValueError("superseded and replacement intents must be bound")
+        abandoned = set(self.abandoned_client_order_ids)
+        if len(abandoned) != len(self.abandoned_client_order_ids):
+            raise ValueError("abandoned intent IDs must be unique")
+        if not abandoned <= set(self.intents):
+            raise ValueError("abandoned state references an unknown intent")
+        if abandoned & set(clients):
+            raise ValueError("a bound intent cannot be abandoned")
+        if abandoned & unknown:
+            raise ValueError("an unknown submission cannot be abandoned")
+        if abandoned & supersession_clients:
+            raise ValueError("a superseded intent cannot be abandoned")
 
     @property
     def order_strategies(self) -> dict[str, str]:
@@ -110,7 +122,7 @@ class OrderRegistry:
 
 
 def empty_order_registry(account_id: str) -> OrderRegistry:
-    return OrderRegistry(account_id, 0, {}, {}, (), {})
+    return OrderRegistry(account_id, 0, {}, {}, (), {}, ())
 
 
 def register_order_intent(
@@ -136,6 +148,7 @@ def register_order_intent(
         dict(registry.broker_orders),
         registry.unknown_client_order_ids,
         dict(registry.superseded_client_order_ids),
+        registry.abandoned_client_order_ids,
     )
 
 
@@ -146,6 +159,8 @@ def bind_broker_order(
 
     if client_order_id not in registry.intents:
         raise ValueError(f"unknown client_order_id: {client_order_id}")
+    if client_order_id in registry.abandoned_client_order_ids:
+        raise ValueError("an abandoned intent cannot be bound")
     if not order_id:
         raise ValueError("order_id must not be empty")
     existing_client = registry.broker_orders.get(order_id)
@@ -179,6 +194,7 @@ def bind_broker_order(
         bindings,
         unknown,
         dict(registry.superseded_client_order_ids),
+        registry.abandoned_client_order_ids,
     )
 
 
@@ -189,6 +205,8 @@ def mark_submission_unknown(
 
     if client_order_id not in registry.intents:
         raise ValueError(f"unknown client_order_id: {client_order_id}")
+    if client_order_id in registry.abandoned_client_order_ids:
+        raise ValueError("an abandoned intent cannot be marked unknown")
     if client_order_id in registry.broker_orders.values():
         raise ValueError("a bound order cannot be marked unknown")
     if client_order_id in registry.unknown_client_order_ids:
@@ -200,6 +218,7 @@ def mark_submission_unknown(
         dict(registry.broker_orders),
         (*registry.unknown_client_order_ids, client_order_id),
         dict(registry.superseded_client_order_ids),
+        registry.abandoned_client_order_ids,
     )
 
 
@@ -260,6 +279,41 @@ def supersede_order_intent(
         dict(registry.broker_orders),
         registry.unknown_client_order_ids,
         superseded,
+        registry.abandoned_client_order_ids,
+    )
+
+
+def abandon_unsubmitted_intents(
+    registry: OrderRegistry, client_order_ids: tuple[str, ...]
+) -> OrderRegistry:
+    """Retain reviewed but unsubmitted intents as explicit abandoned history."""
+
+    requested = set(client_order_ids)
+    if not requested:
+        return registry
+    if not requested <= set(registry.intents):
+        raise ValueError("cannot abandon an unknown intent")
+    bound = set(registry.broker_orders.values())
+    if requested & bound:
+        raise ValueError("cannot abandon a submitted intent")
+    if requested & set(registry.unknown_client_order_ids):
+        raise ValueError("cannot abandon an unknown submission outcome")
+    supersession_clients = set(registry.superseded_client_order_ids) | set(
+        registry.superseded_client_order_ids.values()
+    )
+    if requested & supersession_clients:
+        raise ValueError("cannot abandon a superseded intent")
+    previous = set(registry.abandoned_client_order_ids)
+    if requested <= previous:
+        return registry
+    return OrderRegistry(
+        registry.account_id,
+        registry.revision + 1,
+        dict(registry.intents),
+        dict(registry.broker_orders),
+        registry.unknown_client_order_ids,
+        dict(registry.superseded_client_order_ids),
+        tuple((*registry.abandoned_client_order_ids, *sorted(requested - previous))),
     )
 
 
@@ -287,9 +341,29 @@ def strategy_intents_fully_filled(
         for intent in registry.intents.values()
         if intent.strategy == strategy
         and intent.client_order_id not in registry.superseded_client_order_ids
+        and intent.client_order_id not in registry.abandoned_client_order_ids
     ]
     return bool(intents) and all(
         (order_id := client_orders.get(intent.client_order_id)) is not None
         and order_quantities.get(order_id, 0) == intent.quantity
         for intent in intents
+    )
+
+
+def all_active_intents_fully_filled(
+    registry: OrderRegistry, ledger: StrategyLedger
+) -> bool:
+    """Return whether every non-superseded intent has its exact confirmed fill."""
+
+    if registry.account_id != ledger.account_id:
+        raise ValueError("order registry and strategy ledger accounts do not match")
+    active_strategies = {
+        intent.strategy
+        for intent in registry.intents.values()
+        if intent.client_order_id not in registry.superseded_client_order_ids
+        and intent.client_order_id not in registry.abandoned_client_order_ids
+    }
+    return bool(active_strategies) and all(
+        strategy_intents_fully_filled(registry, ledger, strategy)
+        for strategy in active_strategies
     )

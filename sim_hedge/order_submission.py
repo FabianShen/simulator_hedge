@@ -1,0 +1,163 @@
+"""Shared validation and sequential execution for registered order requests."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Callable, Mapping, Sequence
+
+from hedge_engine import (
+    OrderIntent,
+    OrderRegistry,
+    bind_broker_order,
+    mark_submission_unknown,
+)
+from sim_hedge.adapters.sim_trading import (
+    SimTradingError,
+    SimTradingUnknownOutcomeError,
+)
+
+
+Submit = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+Persist = Callable[[OrderRegistry], None]
+
+
+def execute_registered_requests(
+    registry: OrderRegistry,
+    requests: Sequence[Mapping[str, Any]],
+    *,
+    submit: Submit,
+    persist: Persist,
+) -> tuple[OrderRegistry, dict[str, list[dict[str, str]]]]:
+    accepted: list[dict[str, str]] = []
+    rejected: list[dict[str, str]] = []
+    unknown: list[dict[str, str]] = []
+    current = registry
+    for request in requests:
+        client_order_id = str(request["client_order_id"])
+        try:
+            response = submit(request)
+        except SimTradingUnknownOutcomeError as exc:
+            current = mark_submission_unknown(current, client_order_id)
+            persist(current)
+            unknown.append({"client_order_id": client_order_id, "error": str(exc)})
+            break
+        except SimTradingError as exc:
+            rejected.append({"client_order_id": client_order_id, "error": str(exc)})
+            break
+        order_id = str(response["order_id"])
+        current = bind_broker_order(
+            current, client_order_id=client_order_id, order_id=order_id
+        )
+        persist(current)
+        accepted.append({"client_order_id": client_order_id, "order_id": order_id})
+    return current, {
+        "accepted": accepted,
+        "rejected": rejected,
+        "unknown": unknown,
+    }
+
+
+def validate_registered_requests(
+    raw_requests: Any,
+    registry: OrderRegistry,
+    *,
+    strategy: str,
+    max_total_contracts: int,
+) -> tuple[Mapping[str, Any], ...]:
+    if max_total_contracts <= 0:
+        raise ValueError("max_total_contracts must be positive")
+    if not isinstance(raw_requests, list) or not raw_requests:
+        raise ValueError("dry-run requests must be a non-empty list")
+    requests = tuple(_object(value, "dry-run request") for value in raw_requests)
+    total_contracts = sum(int(value.get("volume") or 0) for value in requests)
+    if total_contracts > max_total_contracts:
+        raise ValueError(
+            f"dry-run total volume {total_contracts} exceeds explicit limit "
+            f"{max_total_contracts}"
+        )
+    client_ids = [str(value.get("client_order_id") or "") for value in requests]
+    if len(client_ids) != len(set(client_ids)):
+        raise ValueError("dry-run contains duplicate client_order_id values")
+    for request, client_id in zip(requests, client_ids):
+        intent = registry.intents.get(client_id)
+        if intent is None:
+            raise ValueError(f"unregistered client_order_id: {client_id}")
+        if intent.strategy != strategy:
+            raise ValueError(f"client_order_id is not owned by {strategy}: {client_id}")
+        if client_id in registry.abandoned_client_order_ids:
+            raise ValueError(f"client_order_id was abandoned: {client_id}")
+        if client_id in registry.broker_orders.values():
+            raise ValueError(f"client_order_id already submitted: {client_id}")
+        if client_id in registry.unknown_client_order_ids:
+            raise ValueError(f"client_order_id has unknown submission state: {client_id}")
+        if dict(request) != request_for_intent(intent):
+            raise ValueError(f"dry-run request conflicts with registry: {client_id}")
+    return requests
+
+
+def validate_pricing_freshness(
+    pricing: Mapping[str, Any],
+    instruments: Sequence[str],
+    *,
+    now: datetime,
+    max_age: float,
+) -> None:
+    if now.tzinfo is None:
+        raise ValueError("current time must be timezone-aware")
+    if max_age <= 0:
+        raise ValueError("max_snapshot_age_seconds must be positive")
+    _require_fresh("pricing snapshot", pricing.get("asOf"), now=now, max_age=max_age)
+    underlying = _object(pricing.get("underlying"), "pricing underlying")
+    _require_fresh(
+        "underlying", underlying.get("observedAt"), now=now, max_age=max_age
+    )
+    options = pricing.get("options")
+    if not isinstance(options, list):
+        raise ValueError("pricing options must be a list")
+    option_times = {
+        str(_object(value, "pricing option").get("instrument") or ""): value.get(
+            "observedAt"
+        )
+        for value in options
+    }
+    for instrument in instruments:
+        _require_fresh(
+            instrument,
+            option_times.get(instrument),
+            now=now,
+            max_age=max_age,
+        )
+
+
+def request_for_intent(intent: OrderIntent) -> dict[str, Any]:
+    return {
+        "client_order_id": intent.client_order_id,
+        "account_id": intent.account_id,
+        "exchange_id": intent.exchange_id,
+        "symbol": intent.instrument,
+        "direction": "BUY" if intent.quantity > 0 else "SELL",
+        "offset_flag": intent.offset,
+        "order_type": intent.order_type,
+        "limit_price": None if intent.limit_price is None else str(intent.limit_price),
+        "volume": abs(intent.quantity),
+    }
+
+
+def _require_fresh(name: str, value: Any, *, now: datetime, max_age: float) -> None:
+    observed = _datetime(str(value or ""))
+    age = (now - observed).total_seconds()
+    if age < 0 or age > max_age:
+        raise ValueError(f"{name} is stale: age={age:g}s")
+
+
+def _datetime(value: str) -> datetime:
+    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if result.tzinfo is None:
+        raise ValueError("pricing timestamp must be timezone-aware")
+    return result
+
+
+def _object(value: Any, name: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{name} is not an object")
+    return value

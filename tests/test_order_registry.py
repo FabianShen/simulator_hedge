@@ -8,6 +8,7 @@ from hedge_engine import (
     empty_order_registry,
     mark_submission_unknown,
     register_order_intent,
+    abandon_unsubmitted_intents,
 )
 
 
@@ -83,6 +84,16 @@ class OrderRegistryTests(unittest.TestCase):
         )
         self.assertEqual(recovered.unknown_client_order_ids, ())
         self.assertEqual(recovered.order_strategies, {"O-1": "ALPHA"})
+
+    def test_abandoned_unsubmitted_intent_cannot_later_be_bound(self) -> None:
+        registered = register_order_intent(empty_order_registry("A1"), intent())
+        abandoned = abandon_unsubmitted_intents(registered, ("alpha-001",))
+
+        self.assertEqual(abandoned.abandoned_client_order_ids, ("alpha-001",))
+        with self.assertRaisesRegex(ValueError, "abandoned"):
+            bind_broker_order(
+                abandoned, client_order_id="alpha-001", order_id="O-1"
+            )
 
 
 if __name__ == "__main__":

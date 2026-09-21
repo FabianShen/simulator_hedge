@@ -304,7 +304,57 @@ plan, requires fully confirmed Alpha fills, excludes every Alpha instrument,
 and saves each Beta intent in the existing registry. A trade that crosses an
 existing Beta position through zero is split into a `CLOSE` order followed by
 an `OPEN` order. The output always has `submission_allowed: false` and performs
-no REST requests. Actual Beta submission is intentionally a later increment.
+no REST requests.
+
+If an unsubmitted Beta proposal becomes stale, rebuild pricing and the hedge
+plan, then regenerate it explicitly with `--replace-unsubmitted`. The old
+intents remain in the registry as abandoned audit history and can never be
+bound or submitted:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.beta_orders `
+  outputs\live-pricing-request.json `
+  outputs\hedge_plan.json `
+  outputs\strategy_ledger.json `
+  outputs\order_registry.json `
+  --exchange-id SZSE `
+  --max-total-contracts 10 `
+  --replace-unsubmitted `
+  --output outputs\beta_order_dry_run.json
+```
+
+Submit a fresh, reviewed Beta proposal yourself with an exact account
+confirmation and contract cap:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.beta_submit `
+  outputs\live-pricing-request.json `
+  outputs\beta_order_dry_run.json `
+  outputs\order_registry.json `
+  outputs\strategy_ledger.json `
+  --confirm-submit ETO202609151523232103 `
+  --max-total-contracts 10 `
+  --max-snapshot-age 120
+```
+
+Unlike Alpha submission, this requires broker positions to equal the confirmed
+Alpha-plus-Beta ledger rather than requiring an empty account. It also requires
+healthy account/risk state, no active orders, fully confirmed Alpha ownership,
+fresh prices, exact registered requests, and no unknown outcomes. It persists
+every accepted order ID before continuing and stops on the first rejected or
+unknown result.
+
+After submission, reconcile all registered Alpha and Beta orders and fills:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.reconcile `
+  outputs\order_registry.json `
+  --ledger outputs\strategy_ledger.json
+```
+
+The next hedge cycle is allowed only when `safe_for_hedging`, `position_match`,
+and `all_fills_complete` are all true. The older
+`python -m sim_hedge.alpha_reconcile` command remains as a compatible alias.
 
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical

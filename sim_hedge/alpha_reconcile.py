@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal, DecimalException
+from decimal import DecimalException
 import json
 import os
 from pathlib import Path
@@ -16,9 +16,11 @@ from hedge_engine import (
     OrderRegistry,
     OrderIntent,
     StrategyLedger,
+    all_active_intents_fully_filled,
     apply_confirmed_fills,
     bind_broker_order,
     empty_ledger,
+    combined_strategy_positions,
     strategy_intents_fully_filled,
 )
 from sim_hedge.adapters.sim_trading import (
@@ -42,7 +44,7 @@ class ReconciliationResult:
 def main() -> None:
     load_env_file()
     parser = argparse.ArgumentParser(
-        description="Read broker orders/trades and reconcile Alpha state"
+        description="Read broker orders/trades and reconcile strategy state"
     )
     parser.add_argument("order_registry")
     parser.add_argument("--ledger", default="outputs/strategy_ledger.json")
@@ -118,7 +120,7 @@ def main() -> None:
         raise SystemExit(f"Alpha reconciliation failed: {exc}") from exc
 
     print(
-        f"Alpha reconciliation safe_for_hedging="
+        f"portfolio reconciliation safe_for_hedging="
         f"{result.report['safe_for_hedging']} "
         f"recovered={len(result.report['recovered_orders'])} "
         f"fills={len(result.ledger.applied_trades)} "
@@ -176,8 +178,8 @@ def reconcile_alpha_state(
     if portfolio.account.account_id != registry.account_id:
         raise ValueError("broker portfolio and order registry accounts do not match")
     updated_ledger = apply_confirmed_fills(ledger, fills)
-    broker_positions = _broker_positions(portfolio)
-    strategy_positions = _strategy_positions(updated_ledger)
+    broker_positions = portfolio.signed_positions
+    strategy_positions = combined_strategy_positions(updated_ledger)
     position_match = broker_positions == strategy_positions
     managed_orders = {
         order.order_id: order
@@ -186,10 +188,12 @@ def reconcile_alpha_state(
     }
     active_order_ids = sorted(order.order_id for order in portfolio.active_orders)
     bound_clients = set(registry.broker_orders.values())
-    unbound_alpha = sorted(
+    unbound_intents = sorted(
         client_id
         for client_id, intent in registry.intents.items()
-        if intent.strategy == "ALPHA" and client_id not in bound_clients
+        if client_id not in bound_clients
+        and client_id not in registry.superseded_client_order_ids
+        and client_id not in registry.abandoned_client_order_ids
     )
     recovered = sorted(
         client_id
@@ -199,16 +203,29 @@ def reconcile_alpha_state(
     alpha_fill_complete = strategy_intents_fully_filled(
         registry, updated_ledger, "ALPHA"
     )
+    has_beta_intents = any(
+        intent.strategy == "BETA"
+        and intent.client_order_id not in registry.superseded_client_order_ids
+        for intent in registry.intents.values()
+    )
+    beta_fill_complete = (
+        strategy_intents_fully_filled(registry, updated_ledger, "BETA")
+        if has_beta_intents
+        else None
+    )
+    all_fills_complete = all_active_intents_fully_filled(
+        registry, updated_ledger
+    )
     account_healthy = (
         portfolio.account.status == "NORMAL"
         and portfolio.account.risk_state in (None, "NORMAL")
     )
     safe = (
         not registry.unknown_client_order_ids
-        and not unbound_alpha
+        and not unbound_intents
         and not active_order_ids
         and position_match
-        and alpha_fill_complete
+        and all_fills_complete
         and account_healthy
     )
     report = {
@@ -219,10 +236,12 @@ def reconcile_alpha_state(
         "ledger_revision": updated_ledger.revision,
         "recovered_orders": recovered,
         "unresolved_submissions": list(registry.unknown_client_order_ids),
-        "unbound_alpha_intents": unbound_alpha,
+        "unbound_order_intents": unbound_intents,
         "active_order_ids": active_order_ids,
         "account_healthy": account_healthy,
         "alpha_fill_complete": alpha_fill_complete,
+        "beta_fill_complete": beta_fill_complete,
+        "all_fills_complete": all_fills_complete,
         "position_match": position_match,
         "broker_positions": broker_positions,
         "strategy_positions": strategy_positions,
@@ -302,28 +321,6 @@ def _load_all_fills(
             raise SimTradingError("trade pagination cursor did not advance")
         seen_cursors.add(page.next_cursor)
         cursor = page.next_cursor
-
-
-def _broker_positions(portfolio: PortfolioSnapshot) -> dict[str, int]:
-    result: dict[str, Decimal] = {}
-    for position in portfolio.positions:
-        result[position.instrument] = (
-            result.get(position.instrument, Decimal(0)) + position.signed_volume
-        )
-    normalized: dict[str, int] = {}
-    for instrument, quantity in result.items():
-        if quantity != quantity.to_integral_value():
-            raise ValueError(f"broker position {instrument} is not an integer")
-        if quantity:
-            normalized[instrument] = int(quantity)
-    return dict(sorted(normalized.items()))
-
-
-def _strategy_positions(ledger: StrategyLedger) -> dict[str, int]:
-    result = dict(ledger.alpha_positions)
-    for instrument, quantity in ledger.beta_positions.items():
-        result[instrument] = result.get(instrument, 0) + quantity
-    return dict(sorted((key, value) for key, value in result.items() if value))
 
 
 def _read(path: str | Path) -> Any:

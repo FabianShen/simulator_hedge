@@ -1,4 +1,4 @@
-"""Explicitly guarded ETF-option Alpha submission command."""
+"""Explicitly guarded ETF-option Beta hedge submission command."""
 
 from __future__ import annotations
 
@@ -9,11 +9,13 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from hedge_engine import OrderRegistry
-from sim_hedge.adapters.sim_trading import (
-    SimTradingError,
-    SimTradingPortfolioSource,
+from hedge_engine import (
+    OrderRegistry,
+    StrategyLedger,
+    combined_strategy_positions,
+    strategy_intents_fully_filled,
 )
+from sim_hedge.adapters.sim_trading import SimTradingError, SimTradingPortfolioSource
 from sim_hedge.config import load_env_file
 from sim_hedge.order_registry import registry_from_payload, registry_to_payload
 from sim_hedge.order_submission import (
@@ -24,29 +26,34 @@ from sim_hedge.order_submission import (
     validate_registered_requests,
 )
 from sim_hedge.portfolio import PortfolioSnapshot
+from sim_hedge.strategy_ledger import ledger_from_payload
 
 
 def main() -> None:
     load_env_file()
-    parser = argparse.ArgumentParser(description="Submit reviewed Alpha orders")
+    parser = argparse.ArgumentParser(description="Submit reviewed Beta hedge orders")
     parser.add_argument("pricing_request")
-    parser.add_argument("alpha_order_dry_run")
+    parser.add_argument("beta_order_dry_run")
     parser.add_argument("order_registry")
+    parser.add_argument("strategy_ledger")
     parser.add_argument("--confirm-submit", required=True, metavar="ACCOUNT_ID")
     parser.add_argument("--max-total-contracts", required=True, type=int)
     parser.add_argument("--base-url", default=os.getenv("SIM_REST_BASE_URL", ""))
     parser.add_argument("--max-snapshot-age", type=float, default=10.0)
     parser.add_argument("--registry-output")
-    parser.add_argument("--report-output", default="outputs/alpha_submission.json")
+    parser.add_argument("--report-output", default="outputs/beta_submission.json")
     args = parser.parse_args()
     if not args.base_url:
         parser.error("set SIM_REST_BASE_URL or pass --base-url")
     registry_output = args.registry_output or args.order_registry
     try:
         pricing = _object(_read(args.pricing_request), "pricing request")
-        proposal = _object(_read(args.alpha_order_dry_run), "Alpha dry-run")
+        proposal = _object(_read(args.beta_order_dry_run), "Beta dry-run")
         registry = registry_from_payload(
             _object(_read(args.order_registry), "order registry")
+        )
+        ledger = ledger_from_payload(
+            _object(_read(args.strategy_ledger), "strategy ledger")
         )
         source = SimTradingPortfolioSource(
             args.base_url,
@@ -65,10 +72,11 @@ def main() -> None:
         def persist(updated: OrderRegistry) -> None:
             _write(registry_output, registry_to_payload(updated))
 
-        updated, report = submit_alpha_orders(
+        updated, report = submit_beta_orders(
             pricing=pricing,
             proposal=proposal,
             registry=registry,
+            ledger=ledger,
             portfolio=portfolio,
             confirmed_account_id=args.confirm_submit,
             submit=source.submit_etf_option_order,
@@ -80,9 +88,9 @@ def main() -> None:
         persist(updated)
         _write(args.report_output, report)
     except (ValueError, KeyError, json.JSONDecodeError, SimTradingError) as exc:
-        raise SystemExit(f"Alpha submission stopped: {exc}") from exc
+        raise SystemExit(f"Beta submission stopped: {exc}") from exc
     print(
-        f"submission accepted={len(report['accepted'])} "
+        f"Beta submission accepted={len(report['accepted'])} "
         f"rejected={len(report['rejected'])} unknown={len(report['unknown'])}"
     )
     print(f"wrote order registry: {registry_output}")
@@ -91,11 +99,12 @@ def main() -> None:
         raise SystemExit(2)
 
 
-def submit_alpha_orders(
+def submit_beta_orders(
     *,
     pricing: Mapping[str, Any],
     proposal: Mapping[str, Any],
     registry: OrderRegistry,
+    ledger: StrategyLedger,
     portfolio: PortfolioSnapshot,
     confirmed_account_id: str,
     submit: Submit,
@@ -104,30 +113,33 @@ def submit_alpha_orders(
     max_total_contracts: int,
     max_snapshot_age_seconds: float = 10.0,
 ) -> tuple[OrderRegistry, dict[str, Any]]:
-    requests = _validate_submission(
+    requests = _validate_beta_submission(
         pricing,
         proposal,
         registry,
+        ledger,
         portfolio,
         confirmed_account_id,
         now,
         max_snapshot_age_seconds,
         max_total_contracts,
     )
-    current, outcomes = execute_registered_requests(
+    updated, outcomes = execute_registered_requests(
         registry, requests, submit=submit, persist=persist
     )
-    return current, {
+    return updated, {
         "source_pricing_request_id": pricing.get("requestId"),
+        "source_strategy_ledger_revision": ledger.revision,
         "account_id": registry.account_id,
         **outcomes,
     }
 
 
-def _validate_submission(
+def _validate_beta_submission(
     pricing: Mapping[str, Any],
     proposal: Mapping[str, Any],
     registry: OrderRegistry,
+    ledger: StrategyLedger,
     portfolio: PortfolioSnapshot,
     confirmed_account_id: str,
     now: datetime,
@@ -136,32 +148,48 @@ def _validate_submission(
 ) -> tuple[Mapping[str, Any], ...]:
     if confirmed_account_id != registry.account_id:
         raise ValueError("--confirm-submit must exactly match the account ID")
-    request_id = str(pricing.get("requestId") or "")
-    if proposal.get("source_pricing_request_id") != request_id:
+    if ledger.account_id != registry.account_id:
+        raise ValueError("strategy ledger and order registry accounts do not match")
+    if portfolio.account.account_id != registry.account_id:
+        raise ValueError("portfolio and order registry account IDs do not match")
+    if proposal.get("source_pricing_request_id") != pricing.get("requestId"):
         raise ValueError("dry-run and pricing request IDs do not match")
+    if proposal.get("source_strategy_ledger_revision") != ledger.revision:
+        raise ValueError("dry-run and strategy ledger revisions do not match")
+    if proposal.get("strategy") != "BETA":
+        raise ValueError("dry-run strategy must be BETA")
     if proposal.get("submission_allowed") is not False:
         raise ValueError("expected a reviewed dry-run proposal")
     if proposal.get("orders_submitted") != 0:
         raise ValueError("dry-run already reports submitted orders")
-    if portfolio.account.account_id != registry.account_id:
-        raise ValueError("portfolio and order registry account IDs do not match")
     if portfolio.account.status != "NORMAL":
         raise ValueError("broker account status is not NORMAL")
     if portfolio.account.risk_state not in (None, "NORMAL"):
         raise ValueError("broker account risk state is not NORMAL")
-    if portfolio.positions:
-        raise ValueError("Alpha submission requires an empty broker portfolio")
     if portfolio.active_orders:
-        raise ValueError("Alpha submission requires no active broker orders")
+        raise ValueError("Beta submission requires no active broker orders")
+    if registry.unknown_client_order_ids:
+        raise ValueError("order registry contains unknown submission outcomes")
+    if not strategy_intents_fully_filled(registry, ledger, "ALPHA"):
+        raise ValueError("Alpha intents are not fully confirmed")
+    if portfolio.signed_positions != combined_strategy_positions(ledger):
+        raise ValueError("broker positions do not match the confirmed strategy ledger")
     requests = validate_registered_requests(
         proposal.get("requests"),
         registry,
-        strategy="ALPHA",
+        strategy="BETA",
         max_total_contracts=max_total_contracts,
     )
+    request_clients = {str(request["client_order_id"]) for request in requests}
+    bound_clients = set(registry.broker_orders.values())
+    active_intents = set(registry.intents) - set(
+        registry.superseded_client_order_ids
+    ) - set(registry.abandoned_client_order_ids)
+    if active_intents - bound_clients != request_clients:
+        raise ValueError("registry unbound intents do not exactly match the Beta dry-run")
     validate_pricing_freshness(
         pricing,
-        [registry.intents[str(request["client_order_id"])].instrument for request in requests],
+        [registry.intents[client_id].instrument for client_id in request_clients],
         now=now,
         max_age=max_age,
     )

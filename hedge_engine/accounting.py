@@ -75,6 +75,15 @@ def empty_ledger(account_id: str) -> StrategyLedger:
     return StrategyLedger(account_id, 0, {}, {}, {})
 
 
+def combined_strategy_positions(ledger: StrategyLedger) -> dict[str, int]:
+    """Combine the disjoint Alpha and Beta books into broker-facing positions."""
+
+    result = dict(ledger.alpha_positions)
+    for instrument, quantity in ledger.beta_positions.items():
+        result[instrument] = result.get(instrument, 0) + quantity
+    return dict(sorted((key, value) for key, value in result.items() if value))
+
+
 def apply_confirmed_fills(
     ledger: StrategyLedger, fills: Sequence[ConfirmedFill]
 ) -> StrategyLedger:

@@ -156,6 +156,31 @@ class BetaOrderDryRunTests(unittest.TestCase):
         self.assertEqual(second, first)
         self.assertEqual(replayed, registered)
 
+    def test_explicitly_abandons_stale_unsubmitted_beta_proposal(self) -> None:
+        ledger, registry = state()
+        pricing, hedge = inputs(revision=ledger.revision)
+        first, registered = build_beta_order_dry_run(
+            pricing, hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=5
+        )
+        refreshed_pricing = {**pricing, "requestId": "R2"}
+        refreshed_hedge = {**hedge, "source_pricing_request_id": "R2"}
+
+        second, refreshed = build_beta_order_dry_run(
+            refreshed_pricing,
+            refreshed_hedge,
+            ledger,
+            registered,
+            exchange_id="SZSE",
+            max_total_contracts=5,
+            replace_unsubmitted=True,
+        )
+
+        old_ids = {request["client_order_id"] for request in first["requests"]}
+        new_ids = {request["client_order_id"] for request in second["requests"]}
+        self.assertTrue(old_ids.isdisjoint(new_ids))
+        self.assertEqual(set(refreshed.abandoned_client_order_ids), old_ids)
+        self.assertEqual(set(second["abandoned_previous_intents"]), old_ids)
+
     def test_rejects_alpha_instrument_as_beta_trade(self) -> None:
         ledger, registry = state()
         pricing, hedge = inputs({"ALPHA": 1}, revision=ledger.revision)

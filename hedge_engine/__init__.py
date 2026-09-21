@@ -4,6 +4,7 @@ from hedge_engine.accounting import (
     ConfirmedFill,
     StrategyLedger,
     apply_confirmed_fills,
+    combined_strategy_positions,
     empty_ledger,
 )
 from hedge_engine.context import HedgeContext, MarketSnapshot, build_hedge_context
@@ -18,6 +19,8 @@ from hedge_engine.engine import (
 from hedge_engine.orders import (
     OrderIntent,
     OrderRegistry,
+    abandon_unsubmitted_intents,
+    all_active_intents_fully_filled,
     bind_broker_order,
     empty_order_registry,
     mark_submission_unknown,
@@ -41,6 +44,9 @@ __all__ = [
     "build_hedge_context",
     "bind_broker_order",
     "apply_confirmed_fills",
+    "abandon_unsubmitted_intents",
+    "all_active_intents_fully_filled",
+    "combined_strategy_positions",
     "empty_ledger",
     "empty_order_registry",
     "mark_submission_unknown",

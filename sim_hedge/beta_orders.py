@@ -15,6 +15,7 @@ from hedge_engine import (
     OrderIntent,
     OrderRegistry,
     StrategyLedger,
+    abandon_unsubmitted_intents,
     register_order_intent,
     strategy_intents_fully_filled,
 )
@@ -30,6 +31,11 @@ def main() -> None:
     parser.add_argument("order_registry")
     parser.add_argument("--exchange-id", required=True)
     parser.add_argument("--max-total-contracts", required=True, type=int)
+    parser.add_argument(
+        "--replace-unsubmitted",
+        action="store_true",
+        help="abandon earlier unsubmitted Beta intents before saving this proposal",
+    )
     parser.add_argument("--output", default="outputs/beta_order_dry_run.json")
     parser.add_argument("--registry-output")
     args = parser.parse_args()
@@ -50,6 +56,7 @@ def main() -> None:
             registry,
             exchange_id=args.exchange_id,
             max_total_contracts=args.max_total_contracts,
+            replace_unsubmitted=args.replace_unsubmitted,
         )
         _write(args.output, dry_run)
         _write(registry_output, registry_to_payload(updated))
@@ -71,6 +78,7 @@ def build_beta_order_dry_run(
     *,
     exchange_id: str,
     max_total_contracts: int,
+    replace_unsubmitted: bool = False,
 ) -> tuple[dict[str, Any], OrderRegistry]:
     if not exchange_id:
         raise ValueError("exchange_id must not be empty")
@@ -151,12 +159,26 @@ def build_beta_order_dry_run(
         generated_client_ids.add(client_order_id)
         requests.append(_request(intent))
 
-    unbound_before = set(registry.intents) - set(registry.broker_orders.values())
+    unbound_before = (
+        set(registry.intents)
+        - set(registry.broker_orders.values())
+        - set(registry.abandoned_client_order_ids)
+        - set(registry.superseded_client_order_ids)
+    )
     unrelated_unbound = unbound_before - generated_client_ids
     if unrelated_unbound:
-        raise ValueError(
-            "order registry has earlier unbound intents: "
-            + ", ".join(sorted(unrelated_unbound))
+        if not replace_unsubmitted:
+            raise ValueError(
+                "order registry has earlier unbound intents: "
+                + ", ".join(sorted(unrelated_unbound))
+            )
+        if any(
+            current.intents[client_id].strategy != "BETA"
+            for client_id in unrelated_unbound
+        ):
+            raise ValueError("only earlier Beta intents may be replaced")
+        current = abandon_unsubmitted_intents(
+            current, tuple(sorted(unrelated_unbound))
         )
     projected = dict(ledger.beta_positions)
     for instrument, quantity in incremental.items():
@@ -175,6 +197,7 @@ def build_beta_order_dry_run(
             "orders_submitted": 0,
             "max_total_contracts": max_total_contracts,
             "total_contracts": total_contracts,
+            "abandoned_previous_intents": sorted(unrelated_unbound),
             "current_beta_positions": dict(ledger.beta_positions),
             "incremental_trades": incremental,
             "projected_beta_positions": projected,

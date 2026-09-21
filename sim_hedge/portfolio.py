@@ -98,3 +98,19 @@ class PortfolioSnapshot:
                 }
             )
         )
+
+    @property
+    def signed_positions(self) -> dict[str, int]:
+        result: dict[str, Decimal] = {}
+        for position in self.positions:
+            result[position.instrument] = (
+                result.get(position.instrument, Decimal(0))
+                + position.signed_volume
+            )
+        normalized: dict[str, int] = {}
+        for instrument, quantity in result.items():
+            if quantity != quantity.to_integral_value():
+                raise ValueError(f"broker position {instrument} is not an integer")
+            if quantity:
+                normalized[instrument] = int(quantity)
+        return dict(sorted(normalized.items()))

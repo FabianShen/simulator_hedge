@@ -1,0 +1,188 @@
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+import unittest
+
+from hedge_engine import (
+    ConfirmedFill,
+    OrderIntent,
+    apply_confirmed_fills,
+    bind_broker_order,
+    empty_ledger,
+    empty_order_registry,
+    register_order_intent,
+)
+from sim_hedge.adapters.sim_trading import SimTradingUnknownOutcomeError
+from sim_hedge.beta_submit import submit_beta_orders
+from sim_hedge.order_submission import request_for_intent
+from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
+
+
+NOW = datetime(2026, 9, 21, 2, 0, tzinfo=timezone.utc)
+
+
+def setup():
+    alpha = OrderIntent(
+        client_order_id="alpha-1",
+        account_id="A1",
+        strategy="ALPHA",
+        exchange_id="SZSE",
+        instrument="ALPHA",
+        quantity=-1,
+        offset="OPEN",
+        order_type="LIMIT",
+        limit_price=Decimal("0.1000"),
+        created_at=NOW,
+    )
+    beta = OrderIntent(
+        client_order_id="beta-1",
+        account_id="A1",
+        strategy="BETA",
+        exchange_id="SZSE",
+        instrument="BETA",
+        quantity=1,
+        offset="OPEN",
+        order_type="LIMIT",
+        limit_price=Decimal("0.2000"),
+        created_at=NOW,
+    )
+    registry = register_order_intent(empty_order_registry("A1"), alpha)
+    registry = bind_broker_order(
+        registry, client_order_id="alpha-1", order_id="OA"
+    )
+    registry = register_order_intent(registry, beta)
+    ledger = apply_confirmed_fills(
+        empty_ledger("A1"),
+        (
+            ConfirmedFill(
+                trade_id="TA",
+                order_id="OA",
+                account_id="A1",
+                strategy="ALPHA",
+                instrument="ALPHA",
+                quantity=-1,
+                price=Decimal("0.1000"),
+                executed_at=NOW,
+            ),
+        ),
+    )
+    pricing = {
+        "requestId": "R1",
+        "asOf": NOW.isoformat(),
+        "underlying": {
+            "instrument": "ETF",
+            "spot": 3.4,
+            "observedAt": NOW.isoformat(),
+        },
+        "options": [
+            {
+                "instrument": "BETA",
+                "marketPrice": "0.2000",
+                "priceTick": "0.0001",
+                "observedAt": NOW.isoformat(),
+            }
+        ],
+    }
+    proposal = {
+        "source_pricing_request_id": "R1",
+        "source_strategy_ledger_revision": ledger.revision,
+        "strategy": "BETA",
+        "submission_allowed": False,
+        "orders_submitted": 0,
+        "requests": [request_for_intent(beta)],
+    }
+    portfolio = PortfolioSnapshot(
+        account=AccountSnapshot(
+            account_id="A1",
+            account_type="ETF_OPTION",
+            status="NORMAL",
+            trading_day=date(2026, 9, 21),
+            risk_state="NORMAL",
+        ),
+        positions=(
+            PositionSnapshot(
+                position_id="PA",
+                account_id="A1",
+                instrument="ALPHA",
+                direction="SHORT",
+                volume=Decimal(1),
+                today_volume=Decimal(1),
+                yesterday_volume=Decimal(0),
+                frozen_volume=Decimal(0),
+                available_volume=Decimal(1),
+            ),
+        ),
+        active_orders=(),
+    )
+    return pricing, proposal, registry, ledger, portfolio
+
+
+class BetaSubmissionTests(unittest.TestCase):
+    def test_submits_registered_beta_without_requiring_empty_portfolio(self) -> None:
+        pricing, proposal, registry, ledger, portfolio = setup()
+        persisted = []
+
+        updated, report = submit_beta_orders(
+            pricing=pricing,
+            proposal=proposal,
+            registry=registry,
+            ledger=ledger,
+            portfolio=portfolio,
+            confirmed_account_id="A1",
+            submit=lambda request: {"order_id": "OB"},
+            persist=persisted.append,
+            now=NOW + timedelta(seconds=2),
+            max_total_contracts=1,
+        )
+
+        self.assertEqual(updated.order_strategies["OB"], "BETA")
+        self.assertEqual(len(report["accepted"]), 1)
+        self.assertEqual(len(persisted), 1)
+
+    def test_rejects_broker_position_mismatch_before_submission(self) -> None:
+        pricing, proposal, registry, ledger, portfolio = setup()
+        calls = []
+        mismatched = PortfolioSnapshot(portfolio.account, (), ())
+
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            submit_beta_orders(
+                pricing=pricing,
+                proposal=proposal,
+                registry=registry,
+                ledger=ledger,
+                portfolio=mismatched,
+                confirmed_account_id="A1",
+                submit=calls.append,
+                persist=lambda value: None,
+                now=NOW,
+                max_total_contracts=1,
+            )
+
+        self.assertEqual(calls, [])
+
+    def test_unknown_outcome_is_persisted_and_blocks_retry(self) -> None:
+        pricing, proposal, registry, ledger, portfolio = setup()
+        persisted = []
+
+        def timeout(request):
+            raise SimTradingUnknownOutcomeError("timeout")
+
+        updated, report = submit_beta_orders(
+            pricing=pricing,
+            proposal=proposal,
+            registry=registry,
+            ledger=ledger,
+            portfolio=portfolio,
+            confirmed_account_id="A1",
+            submit=timeout,
+            persist=persisted.append,
+            now=NOW,
+            max_total_contracts=1,
+        )
+
+        self.assertEqual(updated.unknown_client_order_ids, ("beta-1",))
+        self.assertEqual(len(report["unknown"]), 1)
+        self.assertEqual(len(persisted), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

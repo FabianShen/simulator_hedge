@@ -5,6 +5,7 @@ import unittest
 
 from hedge_engine import (
     OrderIntent,
+    abandon_unsubmitted_intents,
     bind_broker_order,
     empty_order_registry,
     register_order_intent,
@@ -70,6 +71,26 @@ class OrderRegistrySerializationTests(unittest.TestCase):
             original_client_order_id="alpha-001",
             replacement_client_order_id="manual-001",
         )
+
+        restored = registry_from_payload(registry_to_payload(registry))
+
+        self.assertEqual(restored, registry)
+
+    def test_round_trips_abandoned_unsubmitted_intent(self) -> None:
+        value = OrderIntent(
+            client_order_id="beta-old",
+            account_id="A1",
+            strategy="BETA",
+            exchange_id="SZSE",
+            instrument="OPTION",
+            quantity=1,
+            offset="OPEN",
+            order_type="LIMIT",
+            limit_price=Decimal("0.1234"),
+            created_at=datetime(2026, 9, 18, tzinfo=timezone.utc),
+        )
+        registry = register_order_intent(empty_order_registry("A1"), value)
+        registry = abandon_unsubmitted_intents(registry, ("beta-old",))
 
         restored = registry_from_payload(registry_to_payload(registry))
 
