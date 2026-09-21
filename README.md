@@ -279,7 +279,10 @@ residual. `outputs/strategy_ledger.json` keeps fill-confirmed Alpha and Beta
 positions separate. Hedge planning accepts only a `CONFIRMED` ledger, requires
 `broker positions == Alpha actual positions + Beta actual positions`, and
 rejects active broker orders. Alpha instruments contribute risk but are removed
-from the nearest-DTE Beta universe. The hedge-plan file creates no broker orders.
+from the nearest-DTE Beta universe. A pricing failure on a held Alpha/Beta
+contract stops planning; a failure on an unheld contract removes only that
+candidate and is recorded under `pricing_exclusions`. The hedge-plan file
+creates no broker orders.
 
 Convert that reviewed hedge plan into registered Beta order intents without
 contacting the simulator:

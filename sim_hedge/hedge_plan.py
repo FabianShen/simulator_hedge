@@ -35,7 +35,13 @@ def main() -> None:
         pricing_payload = _object(_read(args.pricing_request), "pricing request")
         portfolio_payload = _object(_read(args.portfolio_snapshot), "portfolio")
         ledger_payload = _object(_read(args.strategy_ledger), "strategy ledger")
-        decision, hedge_pair, instrument_greeks, context = build_offline_hedge_decision(
+        (
+            decision,
+            hedge_pair,
+            instrument_greeks,
+            context,
+            pricing_exclusions,
+        ) = build_offline_hedge_decision(
             Path(args.pricing_request),
             pricing_payload,
             portfolio_payload,
@@ -53,6 +59,7 @@ def main() -> None:
             "hedge_pair": list(hedge_pair),
             "strategy_universe": list(context.strategy_universe),
             "hedge_universe": list(context.hedge_universe),
+            "pricing_exclusions": pricing_exclusions,
             "orders_generated": False,
             "risk": {
                 "alpha": asdict(decision.alpha_risk),
@@ -90,6 +97,11 @@ def main() -> None:
             for instrument, quantity in tradable.integer_incremental_trades.items()
         )
     )
+    if pricing_exclusions:
+        print(
+            "excluded unheld contracts: "
+            + ", ".join(sorted(pricing_exclusions))
+        )
     print(f"wrote offline hedge decision: {args.output}")
 
 
@@ -116,6 +128,12 @@ def build_offline_hedge_decision(
     if not isinstance(options, list) or not options:
         raise ValueError("pricing options must be a non-empty list")
 
+    strategies = _object(ledger_payload.get("strategies"), "ledger strategies")
+    alpha_positions = _actual_positions(strategies, "ALPHA")
+    beta_positions = _actual_positions(strategies, "BETA")
+    held_instruments = set(alpha_positions) | set(beta_positions)
+    broker_positions = _broker_positions(portfolio_payload)
+
     response = SabrPricingEngine().price(load_request(pricing_path))
     results = {result.instrument: result for result in response.results}
     nearest_expiry = min(_datetime(str(option["expiry"])) for option in options)
@@ -125,44 +143,32 @@ def build_offline_hedge_decision(
         if _datetime(str(option["expiry"])) == nearest_expiry
     ]
     metadata = {str(option["instrument"]): option for option in selected_options}
-    instrument_greeks: dict[str, InstrumentGreeks] = {}
-    for instrument, option in metadata.items():
-        result = results.get(instrument)
-        if (
-            result is None
-            or result.status != "OK"
-            or result.delta is None
-            or result.gamma is None
-            or result.vega_per_absolute_volatility is None
-            or result.theta_per_year is None
-        ):
-            raise ValueError(f"valid pricing Greeks missing for {instrument}")
-        multiplier = float(option["contractMultiplier"])
-        instrument_greeks[instrument] = InstrumentGreeks(
-            instrument,
-            Greeks(
-                delta=result.delta * multiplier,
-                gamma=result.gamma * multiplier,
-                vega=result.vega_per_absolute_volatility * multiplier,
-                theta=result.theta_per_year * multiplier,
-            ),
+    outside_nearest = held_instruments - set(metadata)
+    if outside_nearest:
+        raise ValueError(
+            "held positions are outside the nearest-expiry pricing universe: "
+            + ", ".join(sorted(outside_nearest))
         )
-
-    strategies = _object(ledger_payload.get("strategies"), "ledger strategies")
-    alpha_positions = _actual_positions(strategies, "ALPHA")
-    beta_positions = _actual_positions(strategies, "BETA")
-    broker_positions = _broker_positions(portfolio_payload)
+    instrument_greeks, pricing_exclusions = _usable_instrument_greeks(
+        metadata, results, held_instruments
+    )
+    valid_metadata = {
+        instrument: option
+        for instrument, option in metadata.items()
+        if instrument in instrument_greeks
+    }
     underlying = _object(pricing_payload.get("underlying"), "underlying")
     market = MarketSnapshot(
         as_of=_datetime(str(pricing_payload["asOf"])),
         spot=float(underlying["spot"]),
         spot_observed_at=_datetime(str(underlying["observedAt"])),
         marks={
-            code: float(option["marketPrice"]) for code, option in metadata.items()
+            code: float(option["marketPrice"])
+            for code, option in valid_metadata.items()
         },
         observed_at={
             code: _datetime(str(option["observedAt"]))
-            for code, option in metadata.items()
+            for code, option in valid_metadata.items()
         },
     )
     context = build_hedge_context(
@@ -170,7 +176,7 @@ def build_offline_hedge_decision(
         alpha_positions=alpha_positions,
         beta_positions=beta_positions,
         broker_positions=broker_positions,
-        strategy_universe=tuple(metadata),
+        strategy_universe=tuple(valid_metadata),
         instrument_greeks=instrument_greeks,
         max_market_age_seconds=max_market_age_seconds,
     )
@@ -183,7 +189,68 @@ def build_offline_hedge_decision(
         instrument_greeks=instrument_greeks,
         hedge_pair=hedge_pair,
     )
-    return decision, hedge_pair, instrument_greeks, context
+    return decision, hedge_pair, instrument_greeks, context, pricing_exclusions
+
+
+def _usable_instrument_greeks(
+    metadata: Mapping[str, Mapping[str, Any]],
+    results: Mapping[str, Any],
+    held_instruments: set[str],
+) -> tuple[dict[str, InstrumentGreeks], dict[str, dict[str, str]]]:
+    instrument_greeks: dict[str, InstrumentGreeks] = {}
+    exclusions: dict[str, dict[str, str]] = {}
+    for instrument, option in metadata.items():
+        result = results.get(instrument)
+        invalid = (
+            result is None
+            or result.status != "OK"
+            or result.delta is None
+            or result.gamma is None
+            or result.vega_per_absolute_volatility is None
+            or result.theta_per_year is None
+        )
+        if invalid:
+            exclusions[instrument] = _pricing_exclusion(result)
+            continue
+        multiplier = float(option["contractMultiplier"])
+        instrument_greeks[instrument] = InstrumentGreeks(
+            instrument,
+            Greeks(
+                delta=result.delta * multiplier,
+                gamma=result.gamma * multiplier,
+                vega=result.vega_per_absolute_volatility * multiplier,
+                theta=result.theta_per_year * multiplier,
+            ),
+        )
+    invalid_held = held_instruments & set(exclusions)
+    if invalid_held:
+        details = "; ".join(
+            f"{instrument}: {exclusions[instrument]['reason']}"
+            for instrument in sorted(invalid_held)
+        )
+        raise ValueError(f"valid pricing Greeks missing for held positions: {details}")
+    return instrument_greeks, exclusions
+
+
+def _pricing_exclusion(result: Any) -> dict[str, str]:
+    if result is None:
+        return {"status": "MISSING", "reason": "pricing result is missing"}
+    missing = [
+        name
+        for name, value in (
+            ("delta", result.delta),
+            ("gamma", result.gamma),
+            ("vega", result.vega_per_absolute_volatility),
+            ("theta", result.theta_per_year),
+        )
+        if value is None
+    ]
+    reason = result.error or (
+        "missing Greeks: " + ", ".join(missing)
+        if missing
+        else f"pricing status is {result.status}"
+    )
+    return {"status": str(result.status), "reason": reason}
 
 
 def _select_hedge_pair(
