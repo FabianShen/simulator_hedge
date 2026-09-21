@@ -1,0 +1,48 @@
+{
+  "requestId": "hedge-request-20260921T030000Z-1",
+  "sourcePricingRequestId": "pricing-20260921T030000Z-7",
+  "marketAsOf": "2026-09-21T03:00:00Z",
+  "accountId": "ETO_EXAMPLE",
+  "baseStrategyLedgerRevision": "6",
+  "spot": 3.3,
+  "instruments": [
+    {
+      "instrument": "ALPHA",
+      "optionType": "OPTION_TYPE_CALL",
+      "strike": 3.4,
+      "contractMultiplier": 1,
+      "delta": 2.0,
+      "gamma": 4.0,
+      "thetaPerYear": -0.1,
+      "vegaPerAbsoluteVolatility": 0.2
+    },
+    {
+      "instrument": "CALL",
+      "optionType": "OPTION_TYPE_CALL",
+      "strike": 3.3,
+      "contractMultiplier": 1,
+      "delta": 1.0,
+      "gamma": 1.0,
+      "thetaPerYear": -0.1,
+      "vegaPerAbsoluteVolatility": 0.2
+    },
+    {
+      "instrument": "PUT",
+      "optionType": "OPTION_TYPE_PUT",
+      "strike": 3.3,
+      "contractMultiplier": 1,
+      "delta": -1.0,
+      "gamma": 1.0,
+      "thetaPerYear": -0.1,
+      "vegaPerAbsoluteVolatility": 0.2
+    }
+  ],
+  "confirmedAlphaPositions": {
+    "ALPHA": "-1"
+  },
+  "confirmedBetaPositions": {},
+  "hedgeUniverse": ["CALL", "PUT"],
+  "configuration": {
+    "model": "HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR"
+  }
+}

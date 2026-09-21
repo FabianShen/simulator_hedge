@@ -319,6 +319,23 @@ account, and `base_strategy_ledger_revision`. An execution application must
 reject the proposal if either the revision or confirmed Beta base no longer
 matches its ledger.
 
+The same proposal boundary is available as a stateless local gRPC service. It
+uses normalized priced Greeks and positions and has no access to market-data or
+trading SDKs:
+
+```powershell
+# Terminal 1
+.\.venv\Scripts\python.exe -m hedge_service.grpc_server
+
+# Terminal 2: recorded request; no live data or broker connection
+.\.venv\Scripts\python.exe -m sim_hedge.hedge_remote `
+  protocols\hedging\v1\examples\hedge_request.json
+```
+
+The reference server runs the current simple pair solver. A future Python or
+C++ optimizer can implement `protocols/hedging/v1/hedging.proto` without
+changing the market gateway or execution application.
+
 Convert that reviewed hedge plan into registered Beta order intents without
 contacting the simulator:
 

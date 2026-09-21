@@ -12,7 +12,7 @@ from hedge_engine import (
     register_order_intent,
 )
 from sim_hedge.beta_orders import build_beta_order_dry_run
-from sim_hedge.hedge_proposal import build_hedge_proposal
+from hedge_engine import build_hedge_proposal
 
 
 NOW = datetime(2026, 9, 21, 2, 0, tzinfo=timezone.utc)

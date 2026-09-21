@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sim_hedge.hedge_proposal import (
+from hedge_engine import (
     build_hedge_proposal,
     validate_hedge_proposal,
 )

@@ -28,12 +28,18 @@ from hedge_engine.orders import (
     strategy_intents_fully_filled,
     supersede_order_intent,
 )
+from hedge_engine.proposal import (
+    HEDGE_PROPOSAL_VERSION,
+    build_hedge_proposal,
+    validate_hedge_proposal,
+)
 
 __all__ = [
     "ConfirmedFill",
     "Greeks",
     "HedgeContext",
     "HedgeDecision",
+    "HEDGE_PROPOSAL_VERSION",
     "InstrumentGreeks",
     "MarketSnapshot",
     "OrderIntent",
@@ -42,6 +48,7 @@ __all__ = [
     "TradableHedgeDecision",
     "evaluate_delta_gamma_hedge",
     "build_hedge_context",
+    "build_hedge_proposal",
     "bind_broker_order",
     "apply_confirmed_fills",
     "abandon_unsubmitted_intents",
@@ -54,4 +61,5 @@ __all__ = [
     "register_order_intent",
     "strategy_intents_fully_filled",
     "supersede_order_intent",
+    "validate_hedge_proposal",
 ]

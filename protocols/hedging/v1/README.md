@@ -1,8 +1,21 @@
 # Hedge proposal contract v1
 
-This JSON contract is the boundary between a hedge decision engine and an order
-execution application. It describes a decision; it never grants permission to
-trade and contains no order type, limit price, retry, or cancellation policy.
+`hedging.proto` is the source of truth for the stateless gRPC boundary between
+the market/risk application and a hedge-decision engine. The response also
+implements the JSON proposal contract consumed by an order execution
+application. It describes a decision; it never grants permission to trade and
+contains no order type, limit price, retry, or cancellation policy.
+
+## Service boundary
+
+`HedgeService.Propose` is unary: one complete normalized snapshot produces one
+proposal. The request contains priced unit Greeks, option metadata, confirmed
+Alpha/Beta positions, the hedge universe, account identity, and ledger revision.
+It contains no vendor payloads, credentials, broker orders, or pending fills.
+
+The service is intentionally stateless. Retrying the same request does not
+advance any internal portfolio. Only the caller's broker-confirmed ledger can
+change the position base for a later request.
 
 ## Position equation
 
@@ -43,3 +56,29 @@ order ID. Re-reading the same proposal must not create duplicate orders.
 The additional risk diagnostics emitted by the reference implementation are
 informative extensions. Consumers must use the v1 identity and position fields
 above as the execution-neutral contract.
+
+## Recorded replay
+
+Start the reference Python server and replay the example from another terminal:
+
+```powershell
+.\.venv\Scripts\python.exe -m hedge_service.grpc_server
+
+.\.venv\Scripts\python.exe -m sim_hedge.hedge_remote `
+  protocols\hedging\v1\examples\hedge_request.json
+```
+
+The server binds to `127.0.0.1:50052` by default. The request and response JSON
+files under `examples/` use standard protobuf JSON names. Signed 64-bit contract
+quantities are strings in protobuf JSON, while the Python client converts them
+back to integers in the execution-neutral proposal dictionary.
+
+## Generate Python bindings
+
+```powershell
+.\.venv\Scripts\python.exe -m grpc_tools.protoc `
+  -I protocols `
+  --python_out=. `
+  --grpc_python_out=. `
+  protocols\hedging\v1\hedging.proto
+```

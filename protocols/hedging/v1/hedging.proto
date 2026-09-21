@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package sim_hedge.hedging.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Stateless calculation service. It owns no broker sessions or working orders.
+service HedgeService {
+  rpc Health(google.protobuf.Empty) returns (HealthResponse);
+  rpc Propose(HedgeRequest) returns (HedgeProposal);
+}
+
+enum OptionType {
+  OPTION_TYPE_UNSPECIFIED = 0;
+  OPTION_TYPE_CALL = 1;
+  OPTION_TYPE_PUT = 2;
+}
+
+enum HedgeModel {
+  HEDGE_MODEL_UNSPECIFIED = 0;
+  HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR = 1;
+}
+
+message HealthResponse {
+  string engine_name = 1;
+  string engine_version = 2;
+  string protocol_version = 3;
+  string proposal_protocol_version = 4;
+}
+
+message InstrumentRisk {
+  string instrument = 1;
+  OptionType option_type = 2;
+  double strike = 3;
+  int32 contract_multiplier = 4;
+
+  // Unit Greeks from the pricing service. Scaling belongs to this service.
+  double delta = 5;
+  double gamma = 6;
+  double theta_per_year = 7;
+  double vega_per_absolute_volatility = 8;
+}
+
+message HedgeConfiguration {
+  HedgeModel model = 1;
+}
+
+message HedgeRequest {
+  // Correlates this RPC and remains stable across transport retries.
+  string request_id = 1;
+  string source_pricing_request_id = 2;
+  google.protobuf.Timestamp market_as_of = 3;
+  string account_id = 4;
+  int64 base_strategy_ledger_revision = 5;
+  double spot = 6;
+  repeated InstrumentRisk instruments = 7;
+  map<string, sint64> confirmed_alpha_positions = 8;
+  map<string, sint64> confirmed_beta_positions = 9;
+  repeated string hedge_universe = 10;
+  HedgeConfiguration configuration = 11;
+}
+
+message Greeks {
+  double delta = 1;
+  double gamma = 2;
+  double vega = 3;
+  double theta = 4;
+}
+
+message HedgeProposal {
+  string request_id = 1;
+  string protocol_version = 2;
+  string proposal_id = 3;
+  string proposal_type = 4;
+  google.protobuf.Timestamp created_at = 5;
+  string source_pricing_request_id = 6;
+  string account_id = 7;
+  int64 base_strategy_ledger_revision = 8;
+  string engine_name = 9;
+  string engine_version = 10;
+  map<string, sint64> confirmed_beta_positions = 11;
+  map<string, sint64> incremental_trades = 12;
+  map<string, sint64> target_beta_positions = 13;
+  bool orders_generated = 14;
+  repeated string hedge_pair = 15;
+  Greeks alpha_risk = 16;
+  Greeks confirmed_beta_risk = 17;
+  Greeks portfolio_risk = 18;
+  Greeks risk_at_target_beta = 19;
+  double normalized_residual = 20;
+}

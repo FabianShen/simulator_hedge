@@ -19,7 +19,7 @@ from hedge_engine import (
     register_order_intent,
     strategy_intents_fully_filled,
 )
-from sim_hedge.hedge_proposal import validate_hedge_proposal
+from hedge_engine import validate_hedge_proposal
 from sim_hedge.order_registry import registry_from_payload, registry_to_payload
 from sim_hedge.strategy_ledger import ledger_from_payload
 

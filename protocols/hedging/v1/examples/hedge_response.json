@@ -1,0 +1,48 @@
+{
+  "requestId": "hedge-request-20260921T030000Z-1",
+  "protocolVersion": "sim-hedge/hedge-proposal/v1",
+  "proposalId": "hedge-566737e5648eff22d58e",
+  "proposalType": "INCREMENTAL_BETA",
+  "createdAt": "2026-09-21T03:00:00Z",
+  "sourcePricingRequestId": "pricing-20260921T030000Z-7",
+  "accountId": "ETO_EXAMPLE",
+  "baseStrategyLedgerRevision": "6",
+  "engineName": "reference-python-hedge",
+  "engineVersion": "0.1.0",
+  "confirmedBetaPositions": {},
+  "incrementalTrades": {
+    "CALL": "3",
+    "PUT": "1"
+  },
+  "targetBetaPositions": {
+    "CALL": "3",
+    "PUT": "1"
+  },
+  "ordersGenerated": false,
+  "hedgePair": ["CALL", "PUT"],
+  "alphaRisk": {
+    "delta": -2.0,
+    "gamma": -4.0,
+    "vega": -0.2,
+    "theta": 0.1
+  },
+  "confirmedBetaRisk": {
+    "delta": 0.0,
+    "gamma": 0.0,
+    "vega": 0.0,
+    "theta": 0.0
+  },
+  "portfolioRisk": {
+    "delta": -2.0,
+    "gamma": -4.0,
+    "vega": -0.2,
+    "theta": 0.1
+  },
+  "riskAtTargetBeta": {
+    "delta": 0.0,
+    "gamma": 0.0,
+    "vega": 0.6000000000000001,
+    "theta": -0.30000000000000004
+  },
+  "normalizedResidual": 0.0
+}

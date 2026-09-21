@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import (
+    build_hedge_proposal,
     Greeks,
     InstrumentGreeks,
     StrategyLedger,
@@ -17,7 +18,6 @@ from hedge_engine import (
     integerize_delta_gamma_hedge,
 )
 from sim_hedge.domain import OptionType
-from sim_hedge.hedge_proposal import build_hedge_proposal
 from sim_hedge.pricing_types import PricingBatch
 from sim_hedge.strategy_universe import StrategyUniverse
 

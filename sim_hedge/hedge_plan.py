@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import (
+    build_hedge_proposal,
     Greeks,
     InstrumentGreeks,
     MarketSnapshot,
@@ -21,7 +22,6 @@ from hedge_engine import (
 )
 from pricing_engine import SabrPricingEngine
 from pricing_engine.__main__ import load_request
-from sim_hedge.hedge_proposal import build_hedge_proposal
 
 
 def main() -> None:
