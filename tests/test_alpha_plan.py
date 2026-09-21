@@ -12,6 +12,9 @@ EXAMPLE = Path(__file__).parents[1] / "protocols/pricing/v1/examples/price_reque
 class AlphaPlanRecordTests(unittest.TestCase):
     def test_builds_serializable_plan_from_recorded_boundaries(self) -> None:
         pricing = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+        pricing["underlying"]["previousClose"] = 3.3
+        for option in pricing["options"]:
+            option["previousSettlement"] = option["marketPrice"]
         put = dict(pricing["options"][2])
         put.update(
             instrument="EXAMPLE-PUT-3.2",
@@ -28,11 +31,11 @@ class AlphaPlanRecordTests(unittest.TestCase):
         plan = build_plan_from_records(pricing, portfolio)
         output = project_alpha_plan(plan, pricing, account_id="A1")
 
-        self.assertEqual(plan.premium_capacity, 71)
+        self.assertGreaterEqual(plan.margin_capacity, 1)
         self.assertEqual(plan.contracts_per_option, 1)
         self.assertEqual(set(plan.target_positions.values()), {-1})
-        self.assertEqual(output["sizing_basis"], "PREMIUM_EQUIVALENT_NOT_MARGIN")
-        self.assertEqual(output["premium_capacity"], 71)
+        self.assertEqual(output["sizing_basis"], "SHORT_OPTION_OPENING_MARGIN")
+        self.assertEqual(output["margin_capacity"], plan.margin_capacity)
         self.assertEqual(output["max_contracts_per_option"], 1)
         self.assertFalse(output["orders_generated"])
         json.dumps(output)
@@ -40,7 +43,11 @@ class AlphaPlanRecordTests(unittest.TestCase):
     def test_budget_fraction_is_forwarded_to_planner(self) -> None:
         pricing = {
             "requestId": "R1",
-            "underlying": {"instrument": "ETF", "spot": 100},
+            "underlying": {
+                "instrument": "ETF",
+                "spot": 100,
+                "previousClose": 100,
+            },
             "options": [
                 {
                     "instrument": instrument,
@@ -50,6 +57,7 @@ class AlphaPlanRecordTests(unittest.TestCase):
                     "contractMultiplier": 10000,
                     "priceTick": 0.0001,
                     "marketPrice": 0.1,
+                    "previousSettlement": 0.1,
                 }
                 for instrument, option_type, strike in (
                     ("C110", "OPTION_TYPE_CALL", 110),
@@ -58,7 +66,7 @@ class AlphaPlanRecordTests(unittest.TestCase):
             ],
         }
         portfolio = {
-            "account": {"cash_balance": "10000"},
+            "account": {"cash_balance": "1000000"},
             "positions": [],
             "active_orders": [],
         }

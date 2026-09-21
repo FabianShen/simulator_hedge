@@ -2,7 +2,11 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
-from sim_hedge.alpha_strategy import AlphaPlanError, build_short_otm_alpha_plan
+from sim_hedge.alpha_strategy import (
+    AlphaPlanError,
+    build_short_otm_alpha_plan,
+    short_option_opening_margin,
+)
 from sim_hedge.domain import OptionContract, OptionType
 
 
@@ -37,8 +41,9 @@ class AlphaStrategyTests(unittest.TestCase):
         plan = build_short_otm_alpha_plan(
             self.contracts,
             spot=100,
-            reference_prices=self.prices,
-            initial_cash=Decimal("100000"),
+            previous_underlying_close=100,
+            previous_settlements=self.prices,
+            initial_cash=Decimal("1000000"),
         )
 
         self.assertEqual(plan.maturity, date(2026, 9, 23))
@@ -46,16 +51,17 @@ class AlphaStrategyTests(unittest.TestCase):
             set(plan.target_positions),
             {"C110", "C120", "P90", "P80"},
         )
-        self.assertEqual(set(plan.target_positions.values()), {-7})
-        self.assertEqual(plan.premium_equivalent_budget, Decimal("30000.00"))
-        self.assertEqual(plan.one_contract_basket_value, Decimal("4000.00"))
+        self.assertEqual(set(plan.target_positions.values()), {-1})
+        self.assertEqual(plan.margin_budget, Decimal("300000.00"))
+        self.assertEqual(plan.one_contract_basket_margin, Decimal("263000.00"))
 
     def test_excludes_atm_and_drops_unpaired_far_otm_contracts(self) -> None:
         plan = build_short_otm_alpha_plan(
             self.contracts,
             spot=100,
-            reference_prices=self.prices,
-            initial_cash="100000",
+            previous_underlying_close=100,
+            previous_settlements=self.prices,
+            initial_cash="1000000",
         )
 
         self.assertNotIn("C100", plan.target_positions)
@@ -67,14 +73,16 @@ class AlphaStrategyTests(unittest.TestCase):
             build_short_otm_alpha_plan(
                 self.contracts,
                 spot=100,
-                reference_prices={},
-                initial_cash="100000",
+                previous_underlying_close=100,
+                previous_settlements={},
+                initial_cash="1000000",
             )
         with self.assertRaisesRegex(AlphaPlanError, "cannot fund one"):
             build_short_otm_alpha_plan(
                 self.contracts,
                 spot=100,
-                reference_prices=self.prices,
+                previous_underlying_close=100,
+                previous_settlements=self.prices,
                 initial_cash="1000",
             )
 
@@ -82,14 +90,31 @@ class AlphaStrategyTests(unittest.TestCase):
         plan = build_short_otm_alpha_plan(
             self.contracts,
             spot=100,
-            reference_prices=self.prices,
-            initial_cash="100000",
+            previous_underlying_close=100,
+            previous_settlements=self.prices,
+            initial_cash="2000000",
             max_contracts_per_option=1,
         )
 
-        self.assertEqual(plan.premium_capacity, 7)
+        self.assertEqual(plan.margin_capacity, 2)
         self.assertEqual(plan.contracts_per_option, 1)
         self.assertEqual(set(plan.target_positions.values()), {-1})
+
+    def test_exchange_call_and_put_margin_formulas(self) -> None:
+        maturity = date(2026, 9, 23)
+        call_margin = short_option_opening_margin(
+            contract(OptionType.CALL, 110, maturity),
+            previous_underlying_close=100,
+            previous_settlement="0.10",
+        )
+        put_margin = short_option_opening_margin(
+            contract(OptionType.PUT, 90, maturity),
+            previous_underlying_close=100,
+            previous_settlement="0.10",
+        )
+
+        self.assertEqual(call_margin, Decimal("71000.00"))
+        self.assertEqual(put_margin, Decimal("64000.00"))
 
 
 if __name__ == "__main__":

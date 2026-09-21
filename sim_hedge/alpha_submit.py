@@ -1,4 +1,4 @@
-"""Explicitly guarded ETF-option Alpha submission command."""
+"""Submit a validated ETF-option Alpha batch."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from sim_hedge.order_submission import (
     Persist,
     Submit,
     execute_registered_requests,
-    validate_pricing_freshness,
+    validate_timestamp_freshness,
     validate_registered_requests,
 )
 from sim_hedge.portfolio import PortfolioSnapshot
@@ -28,11 +28,9 @@ from sim_hedge.portfolio import PortfolioSnapshot
 
 def main() -> None:
     load_env_file()
-    parser = argparse.ArgumentParser(description="Submit reviewed Alpha orders")
-    parser.add_argument("pricing_request")
+    parser = argparse.ArgumentParser(description="Submit validated Alpha orders")
     parser.add_argument("alpha_order_dry_run")
     parser.add_argument("order_registry")
-    parser.add_argument("--confirm-submit", required=True, metavar="ACCOUNT_ID")
     parser.add_argument("--max-total-contracts", required=True, type=int)
     parser.add_argument("--base-url", default=os.getenv("SIM_REST_BASE_URL", ""))
     parser.add_argument("--max-snapshot-age", type=float, default=10.0)
@@ -43,7 +41,6 @@ def main() -> None:
         parser.error("set SIM_REST_BASE_URL or pass --base-url")
     registry_output = args.registry_output or args.order_registry
     try:
-        pricing = _object(_read(args.pricing_request), "pricing request")
         proposal = _object(_read(args.alpha_order_dry_run), "Alpha dry-run")
         registry = registry_from_payload(
             _object(_read(args.order_registry), "order registry")
@@ -66,11 +63,9 @@ def main() -> None:
             _write(registry_output, registry_to_payload(updated))
 
         updated, report = submit_alpha_orders(
-            pricing=pricing,
             proposal=proposal,
             registry=registry,
             portfolio=portfolio,
-            confirmed_account_id=args.confirm_submit,
             submit=source.submit_etf_option_order,
             persist=persist,
             now=datetime.now(timezone.utc),
@@ -93,11 +88,9 @@ def main() -> None:
 
 def submit_alpha_orders(
     *,
-    pricing: Mapping[str, Any],
     proposal: Mapping[str, Any],
     registry: OrderRegistry,
     portfolio: PortfolioSnapshot,
-    confirmed_account_id: str,
     submit: Submit,
     persist: Persist,
     now: datetime,
@@ -105,11 +98,9 @@ def submit_alpha_orders(
     max_snapshot_age_seconds: float = 10.0,
 ) -> tuple[OrderRegistry, dict[str, Any]]:
     requests = _validate_submission(
-        pricing,
         proposal,
         registry,
         portfolio,
-        confirmed_account_id,
         now,
         max_snapshot_age_seconds,
         max_total_contracts,
@@ -118,31 +109,28 @@ def submit_alpha_orders(
         registry, requests, submit=submit, persist=persist
     )
     return current, {
-        "source_pricing_request_id": pricing.get("requestId"),
+        "source_alpha_market_id": proposal.get("source_alpha_market_id"),
         "account_id": registry.account_id,
         **outcomes,
     }
 
 
 def _validate_submission(
-    pricing: Mapping[str, Any],
     proposal: Mapping[str, Any],
     registry: OrderRegistry,
     portfolio: PortfolioSnapshot,
-    confirmed_account_id: str,
     now: datetime,
     max_age: float,
     max_total_contracts: int,
 ) -> tuple[Mapping[str, Any], ...]:
-    if confirmed_account_id != registry.account_id:
-        raise ValueError("--confirm-submit must exactly match the account ID")
-    request_id = str(pricing.get("requestId") or "")
-    if proposal.get("source_pricing_request_id") != request_id:
-        raise ValueError("dry-run and pricing request IDs do not match")
+    if not proposal.get("source_alpha_market_id"):
+        raise ValueError("dry-run is missing its Alpha market snapshot ID")
     if proposal.get("submission_allowed") is not False:
         raise ValueError("expected a reviewed dry-run proposal")
     if proposal.get("orders_submitted") != 0:
         raise ValueError("dry-run already reports submitted orders")
+    if proposal.get("order_type") != "COUNTERPARTY":
+        raise ValueError("Alpha dry-run order type must be COUNTERPARTY")
     if portfolio.account.account_id != registry.account_id:
         raise ValueError("portfolio and order registry account IDs do not match")
     if portfolio.account.status != "NORMAL":
@@ -159,9 +147,9 @@ def _validate_submission(
         strategy="ALPHA",
         max_total_contracts=max_total_contracts,
     )
-    validate_pricing_freshness(
-        pricing,
-        [registry.intents[str(request["client_order_id"])].instrument for request in requests],
+    validate_timestamp_freshness(
+        "Alpha source market snapshot",
+        proposal.get("source_market_as_of"),
         now=now,
         max_age=max_age,
     )

@@ -43,11 +43,11 @@ def main() -> None:
     _write_json(args.output, projection)
     print(
         f"alpha plan: maturity={plan.maturity.isoformat()} "
-        f"options={len(plan.legs)} premium_capacity={plan.premium_capacity} "
+        f"options={len(plan.legs)} margin_capacity={plan.margin_capacity} "
         f"contracts_per_option={plan.contracts_per_option} "
-        f"budget={plan.premium_equivalent_budget}"
+        f"budget={plan.margin_budget}"
     )
-    print("sizing basis: premium equivalent; short-option margin not verified")
+    print("sizing basis: exchange short-option opening margin")
     print(f"wrote Alpha plan: {args.output}")
 
 
@@ -77,7 +77,7 @@ def build_plan_from_records(
         raise ValueError("pricing request has no options")
 
     contracts: list[OptionContract] = []
-    prices: dict[str, Any] = {}
+    previous_settlements: dict[str, Any] = {}
     for value in options:
         option = _object(value, "pricing option")
         instrument = str(option.get("instrument") or "")
@@ -96,7 +96,7 @@ def build_plan_from_records(
                 price_tick=float(option["priceTick"]),
             )
         )
-        prices[instrument] = option.get("marketPrice")
+        previous_settlements[instrument] = option.get("previousSettlement")
 
     account = _object(portfolio.get("account"), "portfolio account")
     initial_cash = account.get("cash_balance")
@@ -105,7 +105,8 @@ def build_plan_from_records(
     return build_short_otm_alpha_plan(
         contracts,
         spot=float(spot),
-        reference_prices=prices,
+        previous_underlying_close=underlying.get("previousClose"),
+        previous_settlements=previous_settlements,
         initial_cash=initial_cash,
         budget_fraction=budget_fraction,
         max_contracts_per_option=max_contracts_per_option,
@@ -124,19 +125,19 @@ def project_alpha_plan(
     }
     return {
         "plan_id": f"alpha-{pricing.get('requestId', 'unknown')}",
-        "source_pricing_request_id": pricing.get("requestId"),
+        "source_alpha_market_id": pricing.get("requestId"),
         "account_id": account_id,
         "as_of": pricing.get("asOf"),
         "underlying": plan.underlying,
         "maturity": plan.maturity.isoformat(),
         "initial_cash": str(plan.initial_cash),
         "budget_fraction": str(plan.budget_fraction),
-        "premium_equivalent_budget": str(plan.premium_equivalent_budget),
-        "one_contract_basket_value": str(plan.one_contract_basket_value),
-        "premium_capacity": plan.premium_capacity,
+        "margin_budget": str(plan.margin_budget),
+        "one_contract_basket_margin": str(plan.one_contract_basket_margin),
+        "margin_capacity": plan.margin_capacity,
         "max_contracts_per_option": plan.max_contracts_per_option,
         "contracts_per_option": plan.contracts_per_option,
-        "sizing_basis": "PREMIUM_EQUIVALENT_NOT_MARGIN",
+        "sizing_basis": "SHORT_OPTION_OPENING_MARGIN",
         "orders_generated": False,
         "legs": [
             {
@@ -144,6 +145,13 @@ def project_alpha_plan(
                 "option_type": leg.contract.option_type.value,
                 "strike": leg.contract.strike,
                 "reference_price": str(prices[leg.contract.instrument]),
+                "previous_settlement": str(
+                    next(
+                        option["previousSettlement"]
+                        for option in pricing["options"]
+                        if option["instrument"] == leg.contract.instrument
+                    )
+                ),
                 "contract_multiplier": leg.contract.contract_multiplier,
                 "quantity": leg.quantity,
             }

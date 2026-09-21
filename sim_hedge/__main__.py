@@ -11,6 +11,7 @@ from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
 from sim_hedge.adapters.grpc_hedging import GrpcHedgeClient, HedgeServiceError
 from sim_hedge.adapters.grpc_pricing import GrpcPricingClient, PricingServiceError
+from sim_hedge.alpha_market import build_alpha_market_snapshot
 from sim_hedge.config import load_env_file
 from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
@@ -76,6 +77,22 @@ def main() -> None:
     parser.add_argument("--pricing-timeout", type=float, default=0.5)
     parser.add_argument("--pricing-max-age", type=float, default=2.0)
     parser.add_argument(
+        "--pricing-output",
+        default="outputs/live-pricing-request.json",
+        help="atomic latest pricing input for audit and automatic trading",
+    )
+    parser.add_argument(
+        "--alpha-market-output",
+        default="outputs/live-alpha-market.json",
+        help="latest available nearest-expiry chain for automatic Alpha initialization",
+    )
+    parser.add_argument(
+        "--alpha-collection-seconds",
+        type=float,
+        default=10.0,
+        help="collect opening ticks before publishing the available Alpha chain",
+    )
+    parser.add_argument(
         "--hedge-target",
         default=os.getenv("HEDGE_TARGET", ""),
         metavar="HOST:PORT",
@@ -119,6 +136,8 @@ def main() -> None:
         parser.error("--pricing-max-age must be positive")
     if args.hedge_timeout <= 0:
         parser.error("--hedge-timeout must be positive")
+    if args.alpha_collection_seconds < 0:
+        parser.error("--alpha-collection-seconds must not be negative")
     if args.stop_after_recording and not args.record_pricing:
         parser.error("--stop-after-recording requires --record-pricing")
     if args.strategy_ledger and not args.pricing_target:
@@ -148,6 +167,8 @@ def main() -> None:
     universe: StrategyUniverse | None = None
     pricing_recorded = False
     pricing_record_error = "strategy universe not selected"
+    alpha_market_recorded_at: datetime | None = None
+    alpha_collection_started_at = datetime.now(timezone.utc)
     pricing_policy = PricingRequestPolicy(
         risk_free_rate=args.risk_free_rate,
         dividend_yield=args.dividend_yield,
@@ -206,6 +227,8 @@ def main() -> None:
             )
 
         def display_pricing(request, result) -> None:
+            if args.pricing_output:
+                record_pricing_request(args.pricing_output, dict(request))
             if args.strategy_ledger:
                 try:
                     ledger_payload = json.loads(
@@ -288,6 +311,7 @@ def main() -> None:
 
     def on_quote(quote) -> None:
         nonlocal count, universe, pricing_recorded, pricing_record_error
+        nonlocal alpha_market_recorded_at
         if args.max_quotes > 0 and count >= args.max_quotes:
             return
         market_state.apply_quote(quote)
@@ -331,6 +355,31 @@ def main() -> None:
                 )
                 if args.stop_after_recording:
                     source.stop()
+        now = datetime.now(timezone.utc)
+        if (
+            args.alpha_market_output
+            and now - alpha_collection_started_at
+            >= timedelta(seconds=args.alpha_collection_seconds)
+            and (
+                alpha_market_recorded_at is None
+                or now - alpha_market_recorded_at >= timedelta(seconds=1)
+            )
+        ):
+            as_of = now
+            try:
+                alpha_market = build_alpha_market_snapshot(
+                    snapshot_id=f"alpha-market-{as_of.strftime('%Y%m%dT%H%M%S.%fZ')}",
+                    as_of=as_of,
+                    underlying=args.underlying,
+                    contracts=contracts,
+                    market_state=market_state,
+                    feed_unsafe=source.health.data_unsafe,
+                )
+            except PricingRequestError:
+                pass
+            else:
+                record_pricing_request(args.alpha_market_output, alpha_market)
+                alpha_market_recorded_at = as_of
         if pricing_worker is not None:
             pricing_worker.request_update()
         count += 1

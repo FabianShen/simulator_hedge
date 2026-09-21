@@ -196,6 +196,8 @@ def normalize_tick(message: dict[str, Any], received_at: datetime | None = None)
             last=_positive_float(message.get("last")),
             bid=_first_positive(message.get("bid")),
             ask=_first_positive(message.get("ask")),
+            previous_close=_positive_float(message.get("prev_close")),
+            previous_settlement=_positive_float(message.get("prev_settlement")),
         )
     except ValueError as exc:
         raise LiveMarketDataError(f"invalid tick for {instrument}: {exc}") from exc

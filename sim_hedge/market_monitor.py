@@ -89,6 +89,8 @@ class MarketMonitor:
                     "last": quote.last,
                     "bid": quote.bid,
                     "ask": quote.ask,
+                    "previous_close": quote.previous_close,
+                    "previous_settlement": quote.previous_settlement,
                 }
                 for instrument, quote in sorted(quotes.items())
             },

@@ -1,4 +1,4 @@
-"""Explicitly guarded ETF-option Beta hedge submission command."""
+"""Submit a validated ETF-option Beta hedge batch."""
 
 from __future__ import annotations
 
@@ -31,11 +31,10 @@ from sim_hedge.strategy_ledger import ledger_from_payload
 
 def main() -> None:
     load_env_file()
-    parser = argparse.ArgumentParser(description="Submit reviewed Beta hedge orders")
+    parser = argparse.ArgumentParser(description="Submit validated Beta hedge orders")
     parser.add_argument("beta_order_dry_run")
     parser.add_argument("order_registry")
     parser.add_argument("strategy_ledger")
-    parser.add_argument("--confirm-submit", required=True, metavar="ACCOUNT_ID")
     parser.add_argument("--max-total-contracts", required=True, type=int)
     parser.add_argument("--base-url", default=os.getenv("SIM_REST_BASE_URL", ""))
     parser.add_argument("--max-snapshot-age", type=float, default=10.0)
@@ -75,7 +74,6 @@ def main() -> None:
             registry=registry,
             ledger=ledger,
             portfolio=portfolio,
-            confirmed_account_id=args.confirm_submit,
             submit=source.submit_etf_option_order,
             persist=persist,
             now=datetime.now(timezone.utc),
@@ -102,7 +100,6 @@ def submit_beta_orders(
     registry: OrderRegistry,
     ledger: StrategyLedger,
     portfolio: PortfolioSnapshot,
-    confirmed_account_id: str,
     submit: Submit,
     persist: Persist,
     now: datetime,
@@ -114,7 +111,6 @@ def submit_beta_orders(
         registry,
         ledger,
         portfolio,
-        confirmed_account_id,
         now,
         max_snapshot_age_seconds,
         max_total_contracts,
@@ -136,13 +132,10 @@ def _validate_beta_submission(
     registry: OrderRegistry,
     ledger: StrategyLedger,
     portfolio: PortfolioSnapshot,
-    confirmed_account_id: str,
     now: datetime,
     max_age: float,
     max_total_contracts: int,
 ) -> tuple[Mapping[str, Any], ...]:
-    if confirmed_account_id != registry.account_id:
-        raise ValueError("--confirm-submit must exactly match the account ID")
     if ledger.account_id != registry.account_id:
         raise ValueError("strategy ledger and order registry accounts do not match")
     if portfolio.account.account_id != registry.account_id:

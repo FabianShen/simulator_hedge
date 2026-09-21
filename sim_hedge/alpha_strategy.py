@@ -30,9 +30,9 @@ class AlphaPlan:
     maturity: date
     initial_cash: Decimal
     budget_fraction: Decimal
-    premium_equivalent_budget: Decimal
-    one_contract_basket_value: Decimal
-    premium_capacity: int
+    margin_budget: Decimal
+    one_contract_basket_margin: Decimal
+    margin_capacity: int
     max_contracts_per_option: int | None
     contracts_per_option: int
     legs: tuple[AlphaLeg, ...]
@@ -46,16 +46,13 @@ def build_short_otm_alpha_plan(
     contracts: list[OptionContract],
     *,
     spot: float,
-    reference_prices: Mapping[str, Decimal | float | int | str],
+    previous_underlying_close: Decimal | float | int | str,
+    previous_settlements: Mapping[str, Decimal | float | int | str],
     initial_cash: Decimal | float | int | str,
     budget_fraction: Decimal | float | str = Decimal("0.30"),
     max_contracts_per_option: int | None = None,
 ) -> AlphaPlan:
-    """Build a balanced nearest-expiry basket with one quantity for every leg.
-
-    The budget is a premium-equivalent sizing rule. It is not an estimate of
-    the margin required by the simulated-trading system.
-    """
+    """Build a balanced nearest-expiry basket sized by short-option margin."""
 
     if not contracts:
         raise AlphaPlanError("option chain must not be empty")
@@ -63,8 +60,11 @@ def build_short_otm_alpha_plan(
         raise AlphaPlanError("spot must be positive")
     cash = _decimal(initial_cash, "initial_cash")
     fraction = _decimal(budget_fraction, "budget_fraction")
+    previous_close = _decimal(previous_underlying_close, "previous_underlying_close")
     if cash <= 0:
         raise AlphaPlanError("initial_cash must be positive")
+    if previous_close <= 0:
+        raise AlphaPlanError("previous_underlying_close must be positive")
     if not Decimal("0") < fraction <= Decimal("1"):
         raise AlphaPlanError("budget_fraction must be greater than zero and at most one")
     if max_contracts_per_option is not None and max_contracts_per_option < 1:
@@ -97,24 +97,29 @@ def build_short_otm_alpha_plan(
         raise AlphaPlanError("nearest maturity has no balanced OTM call/put set")
     selected = tuple(calls[:level_count] + puts[:level_count])
 
-    basket_value = sum(
+    basket_margin = sum(
         (
-            _price(reference_prices, contract.instrument)
-            * contract.contract_multiplier
+            short_option_opening_margin(
+                contract,
+                previous_underlying_close=previous_close,
+                previous_settlement=_price(
+                    previous_settlements, contract.instrument
+                ),
+            )
             for contract in selected
         ),
         start=Decimal("0"),
     )
     budget = cash * fraction
-    premium_capacity = int(budget // basket_value)
-    if premium_capacity < 1:
+    margin_capacity = int(budget // basket_margin)
+    if margin_capacity < 1:
         raise AlphaPlanError(
-            "30% budget cannot fund one premium-equivalent contract per option"
+            "margin budget cannot fund one short contract per selected option"
         )
     contracts_per_option = (
-        premium_capacity
+        margin_capacity
         if max_contracts_per_option is None
-        else min(premium_capacity, max_contracts_per_option)
+        else min(margin_capacity, max_contracts_per_option)
     )
     legs = tuple(
         AlphaLeg(contract=contract, quantity=-contracts_per_option)
@@ -125,13 +130,48 @@ def build_short_otm_alpha_plan(
         maturity=maturity,
         initial_cash=cash,
         budget_fraction=fraction,
-        premium_equivalent_budget=budget,
-        one_contract_basket_value=basket_value,
-        premium_capacity=premium_capacity,
+        margin_budget=budget,
+        one_contract_basket_margin=basket_margin,
+        margin_capacity=margin_capacity,
         max_contracts_per_option=max_contracts_per_option,
         contracts_per_option=contracts_per_option,
         legs=legs,
     )
+
+
+def short_option_opening_margin(
+    contract: OptionContract,
+    *,
+    previous_underlying_close: Decimal | float | int | str,
+    previous_settlement: Decimal | float | int | str,
+) -> Decimal:
+    """Return opening margin for one short option contract."""
+
+    underlying_close = _decimal(
+        previous_underlying_close, "previous_underlying_close"
+    )
+    settlement = _decimal(previous_settlement, "previous_settlement")
+    if underlying_close <= 0 or settlement <= 0:
+        raise AlphaPlanError("previous close and settlement must be positive")
+    strike = Decimal(str(contract.strike))
+    multiplier = Decimal(contract.contract_multiplier)
+    if contract.option_type is OptionType.CALL:
+        out_of_money = max(strike - underlying_close, Decimal("0"))
+        per_unit = settlement + max(
+            Decimal("0.12") * underlying_close - out_of_money,
+            Decimal("0.07") * underlying_close,
+        )
+    else:
+        out_of_money = max(underlying_close - strike, Decimal("0"))
+        per_unit = min(
+            settlement
+            + max(
+                Decimal("0.12") * underlying_close - out_of_money,
+                Decimal("0.07") * strike,
+            ),
+            strike,
+        )
+    return per_unit * multiplier
 
 
 def _price(

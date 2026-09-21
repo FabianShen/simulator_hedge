@@ -31,7 +31,7 @@ def inputs():
     }
     alpha = {
         "plan_id": "alpha-R1",
-        "source_pricing_request_id": "R1",
+        "source_alpha_market_id": "R1",
         "account_id": "A1",
         "orders_generated": False,
         "legs": [
@@ -39,9 +39,8 @@ def inputs():
             {"instrument": "9002", "quantity": -1},
         ],
     }
-    proposal, registry = build_alpha_order_dry_run(
-        pricing, alpha, exchange_id="SZSE"
-    )
+    alpha["as_of"] = NOW.isoformat()
+    proposal, registry = build_alpha_order_dry_run(alpha, exchange_id="SZSE")
     portfolio = PortfolioSnapshot(
         account=AccountSnapshot(
             account_id="A1",
@@ -62,11 +61,9 @@ class AlphaSubmissionTests(unittest.TestCase):
         persisted = []
 
         updated, report = submit_alpha_orders(
-            pricing=pricing,
             proposal=proposal,
             registry=registry,
             portfolio=portfolio,
-            confirmed_account_id="A1",
             submit=lambda request: {
                 "order_id": f"O-{request['symbol']}"
             },
@@ -94,11 +91,9 @@ class AlphaSubmissionTests(unittest.TestCase):
             raise SimTradingUnknownOutcomeError("timeout")
 
         updated, report = submit_alpha_orders(
-            pricing=pricing,
             proposal=proposal,
             registry=registry,
             portfolio=portfolio,
-            confirmed_account_id="A1",
             submit=submit,
             persist=persisted.append,
             now=NOW,
@@ -119,11 +114,9 @@ class AlphaSubmissionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "stale"):
             submit_alpha_orders(
-                pricing=pricing,
                 proposal=proposal,
                 registry=registry,
                 portfolio=portfolio,
-                confirmed_account_id="A1",
                 submit=calls.append,
                 persist=lambda value: None,
                 now=NOW + timedelta(seconds=11),
@@ -132,32 +125,14 @@ class AlphaSubmissionTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
-    def test_requires_typed_account_confirmation(self) -> None:
-        pricing, proposal, registry, portfolio = inputs()
-
-        with self.assertRaisesRegex(ValueError, "exactly match"):
-            submit_alpha_orders(
-                pricing=pricing,
-                proposal=proposal,
-                registry=registry,
-                portfolio=portfolio,
-                confirmed_account_id="WRONG",
-                submit=lambda request: {},
-                persist=lambda value: None,
-                now=NOW,
-                max_total_contracts=2,
-            )
-
     def test_requires_explicit_total_contract_limit(self) -> None:
         pricing, proposal, registry, portfolio = inputs()
 
         with self.assertRaisesRegex(ValueError, "exceeds explicit limit"):
             submit_alpha_orders(
-                pricing=pricing,
                 proposal=proposal,
                 registry=registry,
                 portfolio=portfolio,
-                confirmed_account_id="A1",
                 submit=lambda request: {},
                 persist=lambda value: None,
                 now=NOW,

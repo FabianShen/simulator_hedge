@@ -97,6 +97,34 @@ to the hedge client. Hedge RPC failures publish `NOT_READY` and do not stop the
 live feed. Omitting `--hedge-target` retains the in-process reference calculation
 for development; production-style testing should exercise the external service.
 
+Automatic trading is a separate small coordinator. It reads the atomically
+published available-chain Alpha market and hedge proposal, queries authoritative
+broker state, reconciles first, and performs at most one Alpha or Beta batch per
+cycle. Bind it once to the intended account at startup; individual batches do
+not require typed confirmation:
+
+```powershell
+# Read-only check before the market opens
+.\.venv\Scripts\python.exe -m sim_hedge.auto_trader `
+  --enable-live-orders ETO202609151523232103 `
+  --max-alpha-contracts YOUR_HARD_ALPHA_LIMIT `
+  --max-beta-contracts 10 `
+  --preflight
+
+# Remove --preflight only when automatic simulated-account orders are intended
+.\.venv\Scripts\python.exe -m sim_hedge.auto_trader `
+  --enable-live-orders ETO202609151523232103 `
+  --max-alpha-contracts YOUR_HARD_ALPHA_LIMIT `
+  --max-beta-contracts 10
+```
+
+On an empty account/ledger it initializes Alpha once from the 30% margin rule.
+After confirmed fills reconcile, it automatically accepts and submits fresh
+incremental Beta proposals with `COUNTERPARTY`. It waits while orders are active
+and blocks on stale inputs, position mismatch, unhealthy account state, or an
+unknown submission outcome. The hard limits are independent safety ceilings;
+they do not alter the margin formula.
+
 Portfolio state comes from the simulated-trading system, not from the market
 feed. The first read-only boundary fetches the authoritative absolute snapshot
 from `GET /api/accounts/{account_id}/trading-snapshot`, converts monetary and
@@ -145,63 +173,65 @@ The initial Alpha target is built separately from both the strategy universe and
 the broker portfolio. `build_short_otm_alpha_plan()` selects the maximum balanced
 set of OTM calls and puts from the nearest maturity, excludes ATM, and assigns
 one common short quantity to every option. The quantity uses 30% of captured
-initial cash as a premium-equivalent budget:
+initial cash as an opening-margin budget. It requires the Live SDK's distinct
+`prev_close` and `prev_settlement` fields and never substitutes a current price:
 
 ```text
-one basket = sum(reference price * contract multiplier) for every selected leg
-premium capacity = floor(30% * initial cash / one basket)
-contracts per option = min(premium capacity, explicit test cap)
+call margin = [option previous settlement + max(12% * underlying previous close
+              - call OTM amount, 7% * underlying previous close)] * multiplier
+put margin  = min[option previous settlement + max(12% * underlying previous close
+              - put OTM amount, 7% * strike), strike] * multiplier
+margin capacity = floor(30% * initial cash / sum(one-contract leg margins))
+contracts per option = margin capacity
 ```
 
-This is an offline sizing rule, not a short-option margin calculation, and it
-does not submit orders or modify the actual `PortfolioState`.
+The normal live gateway atomically refreshes `outputs/live-alpha-market.json`
+from the maximum available nearest-expiry chain after a 10-second collection
+window. This is deliberately separate from the
+smaller pricing/hedging universe.
 
 Build an inspectable Alpha plan entirely from recorded inputs:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge.alpha_plan `
-  outputs\live-pricing-request.json `
+  outputs\live-alpha-market.json `
   outputs\portfolio_state.json `
   --output outputs\alpha_plan.json
 ```
 
-The output explicitly records `PREMIUM_EQUIVALENT_NOT_MARGIN` and
+The output explicitly records `SHORT_OPTION_OPENING_MARGIN` and
 `orders_generated: false`; it is an offline target, not permission to trade.
-The command defaults to `--max-contracts-per-option 1` and records both the
-uncapped premium capacity and the applied cap.
+The standalone inspection command defaults to `--max-contracts-per-option 1`;
+the automatic coordinator uses the uncapped margin capacity and applies a
+separate total-contract safety limit before submitting.
 
 Generate registered Alpha order intents from saved data without submitting:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge.alpha_orders `
-  outputs\live-pricing-request.json `
   outputs\alpha_plan.json `
   --exchange-id SZSE `
   --output outputs\alpha_order_dry_run.json `
   --registry-output outputs\order_registry.json
 ```
 
-The saved mid is rounded to the nearest valid price tick for inspection only.
+Alpha execution uses `COUNTERPARTY`; the simulator resolves its protected price.
 The output explicitly says `submission_allowed: false` and `orders_submitted: 0`;
 execution must rebuild or validate prices against a fresh live market snapshot.
 For this workflow, record a fresh snapshot with
 `--record-pricing PATH --stop-after-recording`, then immediately rebuild the
 Alpha plan and dry-run.
 
-The following command performs real simulated-account submissions. Run it
-yourself only after regenerating and reviewing the three input files. The value
-of `--confirm-submit` must exactly match the account ID:
+The standalone submission command remains useful for diagnostics:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge.alpha_submit `
-  outputs\live-pricing-request.json `
   outputs\alpha_order_dry_run.json `
   outputs\order_registry.json `
-  --confirm-submit ETO202609151523232103 `
   --max-total-contracts 4
 ```
 
-Before the first POST it independently checks that the pricing snapshot is at
+Before the first POST it independently checks that the source snapshot is at
 most 10 seconds old, the account and risk states are `NORMAL`, and the broker
 has no positions or active orders. It submits sequentially, saves each returned
 `order_id` before continuing, and stops on the first rejection. A timeout,
@@ -230,7 +260,7 @@ written for diagnosis and exits with status 2. Use `--initialize-ledger` only
 for this first broker replay; omit it on later runs so the confirmed ledger is
 loaded and each `trade_id` remains idempotent across restarts.
 
-If a registered Alpha limit order is cancelled with zero fills and you
+If a registered Alpha order is cancelled with zero fills and you
 deliberately replace it manually, record that ownership explicitly:
 
 ```powershell
@@ -390,15 +420,13 @@ bound or submitted:
   --output outputs\beta_order_dry_run.json
 ```
 
-Submit a fresh, reviewed Beta proposal yourself with an exact account
-confirmation and contract cap:
+Submit a fresh Beta proposal with a contract cap:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge.beta_submit `
   outputs\beta_order_dry_run.json `
   outputs\order_registry.json `
   outputs\strategy_ledger.json `
-  --confirm-submit ETO202609151523232103 `
   --max-total-contracts 10 `
   --max-snapshot-age 120
 ```

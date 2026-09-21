@@ -44,6 +44,8 @@ class MarketQuote:
     last: float | None
     bid: float | None
     ask: float | None
+    previous_close: float | None = None
+    previous_settlement: float | None = None
 
     def __post_init__(self) -> None:
         if not self.instrument:
@@ -56,5 +58,9 @@ class MarketQuote:
             raise ValueError("bid must be positive when present")
         if self.ask is not None and self.ask <= 0:
             raise ValueError("ask must be positive when present")
+        if self.previous_close is not None and self.previous_close <= 0:
+            raise ValueError("previous_close must be positive when present")
+        if self.previous_settlement is not None and self.previous_settlement <= 0:
+            raise ValueError("previous_settlement must be positive when present")
         if self.last is None and self.bid is None and self.ask is None:
             raise ValueError("quote must contain at least one valid price")

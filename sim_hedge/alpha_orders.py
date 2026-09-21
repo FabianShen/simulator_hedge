@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
-from decimal import Decimal, DecimalException, ROUND_HALF_UP
+from decimal import Decimal, DecimalException
 from hashlib import sha256
 import json
 import os
@@ -17,7 +17,6 @@ from sim_hedge.order_registry import registry_from_payload, registry_to_payload
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build dry-run Alpha order intents")
-    parser.add_argument("pricing_request")
     parser.add_argument("alpha_plan")
     parser.add_argument("--exchange-id", required=True)
     parser.add_argument("--registry", help="existing order registry")
@@ -25,7 +24,6 @@ def main() -> None:
     parser.add_argument("--registry-output", default="outputs/order_registry.json")
     args = parser.parse_args()
     try:
-        pricing = _object(_read(args.pricing_request), "pricing request")
         alpha = _object(_read(args.alpha_plan), "Alpha plan")
         registry = (
             registry_from_payload(_object(_read(args.registry), "order registry"))
@@ -33,7 +31,6 @@ def main() -> None:
             else None
         )
         dry_run, updated = build_alpha_order_dry_run(
-            pricing,
             alpha,
             exchange_id=args.exchange_id,
             registry=registry,
@@ -51,7 +48,6 @@ def main() -> None:
 
 
 def build_alpha_order_dry_run(
-    pricing: Mapping[str, Any],
     alpha: Mapping[str, Any],
     *,
     exchange_id: str,
@@ -59,9 +55,9 @@ def build_alpha_order_dry_run(
 ) -> tuple[dict[str, Any], OrderRegistry]:
     if not exchange_id:
         raise ValueError("exchange_id must not be empty")
-    request_id = str(pricing.get("requestId") or "")
-    if not request_id or alpha.get("source_pricing_request_id") != request_id:
-        raise ValueError("Alpha plan and pricing request IDs do not match")
+    request_id = str(alpha.get("source_alpha_market_id") or "")
+    if not request_id:
+        raise ValueError("Alpha plan market snapshot ID must not be empty")
     if alpha.get("orders_generated") is not False:
         raise ValueError("expected an offline Alpha plan")
     account_id = str(alpha.get("account_id") or "")
@@ -70,15 +66,10 @@ def build_alpha_order_dry_run(
     current = registry or empty_order_registry(account_id)
     if current.account_id != account_id:
         raise ValueError("Alpha plan and order registry account IDs do not match")
-    options = pricing.get("options")
     legs = alpha.get("legs")
-    if not isinstance(options, list) or not isinstance(legs, list) or not legs:
-        raise ValueError("pricing options and non-empty Alpha legs must be lists")
-    metadata = {
-        str(_object(option, "pricing option")["instrument"]): option
-        for option in options
-    }
-    created_at = _datetime(str(pricing.get("asOf") or ""))
+    if not isinstance(legs, list) or not legs:
+        raise ValueError("Alpha legs must be a non-empty list")
+    created_at = _datetime(str(alpha.get("as_of") or ""))
     requests = []
     for raw_leg in legs:
         leg = _object(raw_leg, "Alpha leg")
@@ -86,14 +77,6 @@ def build_alpha_order_dry_run(
         quantity = _integer(leg.get("quantity"), f"Alpha quantity for {instrument}")
         if quantity >= 0:
             raise ValueError("initial Alpha order quantities must be negative")
-        option = _object(metadata.get(instrument), f"pricing option {instrument}")
-        tick = Decimal(str(option["priceTick"]))
-        market_price = Decimal(str(option["marketPrice"]))
-        if tick <= 0 or market_price <= 0:
-            raise ValueError(f"invalid market price or tick for {instrument}")
-        limit_price = (market_price / tick).quantize(
-            Decimal("1"), rounding=ROUND_HALF_UP
-        ) * tick
         client_order_id = _client_order_id(request_id, instrument)
         intent = OrderIntent(
             client_order_id=client_order_id,
@@ -103,8 +86,8 @@ def build_alpha_order_dry_run(
             instrument=instrument,
             quantity=quantity,
             offset="OPEN",
-            order_type="LIMIT",
-            limit_price=limit_price,
+            order_type="COUNTERPARTY",
+            limit_price=None,
             created_at=created_at,
         )
         current = register_order_intent(current, intent)
@@ -116,16 +99,17 @@ def build_alpha_order_dry_run(
                 "symbol": instrument,
                 "direction": "SELL",
                 "offset_flag": "OPEN",
-                "order_type": "LIMIT",
-                "limit_price": str(limit_price),
+                "order_type": "COUNTERPARTY",
                 "volume": abs(quantity),
             }
         )
     return (
         {
-            "source_pricing_request_id": request_id,
+            "source_alpha_market_id": request_id,
             "source_alpha_plan_id": alpha.get("plan_id"),
-            "price_source": "RECORDED_MID_ROUNDED_TO_TICK",
+            "source_market_as_of": alpha.get("as_of"),
+            "price_source": "SIMULATOR_COUNTERPARTY_RESOLUTION",
+            "order_type": "COUNTERPARTY",
             "submission_allowed": False,
             "orders_submitted": 0,
             "requests": requests,

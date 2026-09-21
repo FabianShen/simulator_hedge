@@ -61,6 +61,8 @@ class NormalizeTickTests(unittest.TestCase):
                 "last": 2.031,
                 "bid": [2.030, 2.029],
                 "ask": [2.032, 2.033],
+                "prev_close": 2.025,
+                "prev_settlement": 0.123,
             },
             received_at=received,
         )
@@ -69,7 +71,7 @@ class NormalizeTickTests(unittest.TestCase):
             quote,
             MarketQuote(
                 "159915.XSHE", observed, received, date(2026, 9, 16),
-                2.031, 2.030, 2.032,
+                2.031, 2.030, 2.032, 2.025, 0.123,
             ),
         )
 

@@ -95,9 +95,9 @@ def main() -> None:
         trading_day = initial_portfolio.account.trading_day
         if trading_day is None:
             raise ValueError("broker snapshot has no trading_day")
-        orders = _load_all_orders(source, registry.account_id, trading_day)
+        orders = load_all_orders(source, registry.account_id, trading_day)
         recovered_registry = recover_order_bindings(registry, orders)
-        fills = _load_all_fills(source, recovered_registry)
+        fills = load_all_fills(source, recovered_registry)
         portfolio = source.load(registry.account_id)
         result = reconcile_alpha_state(
             registry=recovered_registry,
@@ -282,7 +282,7 @@ def _verify_order_matches_intent(order: BrokerOrder, intent: OrderIntent) -> Non
         )
 
 
-def _load_all_orders(
+def load_all_orders(
     source: SimTradingPortfolioSource, account_id: str, trading_day: date
 ) -> tuple[BrokerOrder, ...]:
     orders: list[BrokerOrder] = []
@@ -301,7 +301,7 @@ def _load_all_orders(
         cursor = page.next_cursor
 
 
-def _load_all_fills(
+def load_all_fills(
     source: SimTradingPortfolioSource, registry: OrderRegistry
 ) -> tuple[ConfirmedFill, ...]:
     fills: list[ConfirmedFill] = []
