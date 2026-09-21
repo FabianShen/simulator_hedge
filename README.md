@@ -443,6 +443,39 @@ from another proposal. Legacy registry JSON remains readable; replaying the
 same old proposal does not infer ownership that was never recorded. An old
 active Beta order without proposal ownership is rejected for manual review.
 
+Freeze one reviewed live proposal against the current ledger before generating
+orders. The destination is write-once: repeating the same acceptance is
+idempotent, while a different proposal cannot replace it.
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.execution_monitor accept `
+  outputs\live_risk.json `
+  outputs\strategy_ledger.json `
+  --output outputs\accepted_hedge_proposal.json
+```
+
+Use `outputs\accepted_hedge_proposal.json`—not the continually replaced
+`live_risk.json`—as the hedge-plan argument to `sim_hedge.beta_orders`.
+After that batch completes, retain it as audit history and accept the next
+proposal under a new filename; acceptance never overwrites a previous batch.
+
+After reconciling broker fills, inspect the frozen batch with one read-only
+portfolio request:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.execution_monitor status `
+  outputs\accepted_hedge_proposal.json `
+  outputs\order_registry.json `
+  outputs\strategy_ledger.json `
+  --output outputs\execution_status.json
+```
+
+The status is `READY_TO_SUBMIT`, `WORKING`, `COMPLETE`, `NO_ACTION`, or
+`BLOCKED_BY_PRIOR_PROPOSAL`. Both accepted and status files explicitly contain
+`submission_allowed: false`; this command performs no submission, cancellation,
+or repricing. If broker positions or traded volume are ahead of the saved
+ledger, run the read-only reconciliation command first.
+
 `SIM_ACCESS_TOKEN` can replace username/password while it remains valid. An ETF
 option account and its linked stock/cash settlement account form one logical
 portfolio; the adapter also provides the read-only settlement-account lookup,
