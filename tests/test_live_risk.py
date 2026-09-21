@@ -22,11 +22,14 @@ class LiveRiskTests(unittest.TestCase):
         )
 
         self.assertEqual(snapshot["status"], "READY")
+        self.assertEqual(snapshot["protocol_version"], "sim-hedge/hedge-proposal/v1")
+        self.assertTrue(snapshot["proposal_id"].startswith("hedge-"))
+        self.assertEqual(snapshot["base_strategy_ledger_revision"], 1)
         self.assertEqual(snapshot["hedge_pair"], ["CALL", "PUT"])
         self.assertEqual(
-            snapshot["integer_incremental_trades"], {"CALL": 3, "PUT": 1}
+            snapshot["incremental_trades"], {"CALL": 3, "PUT": 1}
         )
-        self.assertEqual(snapshot["desired_beta_positions"], {"CALL": 3, "PUT": 1})
+        self.assertEqual(snapshot["target_beta_positions"], {"CALL": 3, "PUT": 1})
         self.assertEqual(snapshot["risk"]["portfolio"]["delta"], -2.0)
         self.assertEqual(snapshot["risk"]["portfolio"]["gamma"], -4.0)
         self.assertFalse(snapshot["orders_generated"])

@@ -213,7 +213,7 @@ def main() -> None:
                     return
                 write_live_risk_snapshot(args.risk_output, risk)
                 portfolio_risk = risk["risk"]["portfolio"]
-                target = risk["desired_beta_positions"]
+                target = risk["target_beta_positions"]
                 print(
                     f"live risk request={result.request_id} "
                     f"delta={portfolio_risk['delta']:.6g} "

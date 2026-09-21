@@ -128,8 +128,9 @@ def submit_beta_orders(
         registry, requests, submit=submit, persist=persist
     )
     return updated, {
+        "source_hedge_proposal_id": proposal.get("source_hedge_proposal_id"),
         "source_pricing_request_id": pricing.get("requestId"),
-        "source_strategy_ledger_revision": ledger.revision,
+        "base_strategy_ledger_revision": ledger.revision,
         "account_id": registry.account_id,
         **outcomes,
     }
@@ -154,7 +155,9 @@ def _validate_beta_submission(
         raise ValueError("portfolio and order registry account IDs do not match")
     if proposal.get("source_pricing_request_id") != pricing.get("requestId"):
         raise ValueError("dry-run and pricing request IDs do not match")
-    if proposal.get("source_strategy_ledger_revision") != ledger.revision:
+    if not proposal.get("source_hedge_proposal_id"):
+        raise ValueError("dry-run is missing its source hedge proposal ID")
+    if proposal.get("base_strategy_ledger_revision") != ledger.revision:
         raise ValueError("dry-run and strategy ledger revisions do not match")
     if proposal.get("strategy") != "BETA":
         raise ValueError("dry-run strategy must be BETA")

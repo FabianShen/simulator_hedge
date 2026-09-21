@@ -61,8 +61,8 @@ responses whose input snapshot has exceeded the freshness limit. Continuous
 pricing is disabled when `--pricing-target` is omitted.
 
 Once the strategy ledger contains broker-confirmed Alpha/Beta positions, the
-same long-running market process can publish live portfolio Greeks and a desired
-Beta position after every accepted pricing result:
+same long-running market process can publish live portfolio Greeks and a
+versioned incremental Beta proposal after every accepted pricing result:
 
 ```powershell
 .\.venv\Scripts\python.exe -m sim_hedge `
@@ -73,9 +73,11 @@ Beta position after every accepted pricing result:
 
 The ledger is reloaded after every pricing response, so a separately reconciled
 fill becomes part of the next risk calculation without restarting the live
-feed. `live_risk.json` is replaced atomically and contains actual Alpha/Beta
-positions, current portfolio Greeks, integer incremental trades, and the
-resulting desired Beta positions. It always records `orders_generated: false`.
+feed. `live_risk.json` is replaced atomically and contains a proposal ID, its
+base ledger revision, confirmed Beta positions, integer incremental trades, the
+resulting target Beta positions, and current portfolio Greeks. The required
+identity and position equation are documented in
+`protocols/hedging/v1/README.md`. It always records `orders_generated: false`.
 This market/pricing/risk process never calls the trading API. A separate order
 application may take as long as necessary to move the confirmed Beta position
 toward the published target; only broker-confirmed fills update the ledger.
@@ -303,6 +305,19 @@ from the nearest-DTE Beta universe. A pricing failure on a held Alpha/Beta
 contract stops planning; a failure on an unheld contract removes only that
 candidate and is recorded under `pricing_exclusions`. The hedge-plan file
 creates no broker orders.
+
+The hedge-plan output implements `sim-hedge/hedge-proposal/v1`. Its signed
+integer quantities obey:
+
+```text
+target_beta_positions
+    = confirmed_beta_positions + incremental_trades
+```
+
+The deterministic `proposal_id` binds that decision to its pricing request,
+account, and `base_strategy_ledger_revision`. An execution application must
+reject the proposal if either the revision or confirmed Beta base no longer
+matches its ledger.
 
 Convert that reviewed hedge plan into registered Beta order intents without
 contacting the simulator:

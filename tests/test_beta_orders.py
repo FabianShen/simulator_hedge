@@ -12,6 +12,7 @@ from hedge_engine import (
     register_order_intent,
 )
 from sim_hedge.beta_orders import build_beta_order_dry_run
+from sim_hedge.hedge_proposal import build_hedge_proposal
 
 
 NOW = datetime(2026, 9, 21, 2, 0, tzinfo=timezone.utc)
@@ -79,9 +80,9 @@ def state(beta_quantity: int = 0):
     return ledger, registry
 
 
-def inputs(trades=None, revision=1):
+def inputs(trades=None, revision=1, beta_positions=None, request_id="R1"):
     pricing = {
-        "requestId": "R1",
+        "requestId": request_id,
         "asOf": "2026-09-21T02:00:00Z",
         "options": [
             {"instrument": "CALL", "marketPrice": "0.20125", "priceTick": "0.0001"},
@@ -90,13 +91,17 @@ def inputs(trades=None, revision=1):
         ],
     }
     hedge = {
-        "source_pricing_request_id": "R1",
-        "source_strategy_ledger_revision": revision,
-        "orders_generated": False,
+        **build_hedge_proposal(
+            pricing_request_id=request_id,
+            account_id="A1",
+            base_ledger_revision=revision,
+            created_at=NOW,
+            engine_name="test",
+            engine_version="1",
+            confirmed_beta_positions=beta_positions or {},
+            incremental_trades=trades or {"CALL": 2, "PUT": -3},
+        ),
         "hedge_universe": ["CALL", "PUT"],
-        "tradable_solution": {
-            "incremental_trades": trades or {"CALL": 2, "PUT": -3}
-        },
     }
     return pricing, hedge
 
@@ -125,7 +130,9 @@ class BetaOrderDryRunTests(unittest.TestCase):
 
     def test_splits_a_trade_that_crosses_through_zero(self) -> None:
         ledger, registry = state(beta_quantity=2)
-        pricing, hedge = inputs({"CALL": -5}, revision=ledger.revision)
+        pricing, hedge = inputs(
+            {"CALL": -5}, revision=ledger.revision, beta_positions={"CALL": 2}
+        )
 
         output, _ = build_beta_order_dry_run(
             pricing,
@@ -162,8 +169,9 @@ class BetaOrderDryRunTests(unittest.TestCase):
         first, registered = build_beta_order_dry_run(
             pricing, hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=5
         )
-        refreshed_pricing = {**pricing, "requestId": "R2"}
-        refreshed_hedge = {**hedge, "source_pricing_request_id": "R2"}
+        refreshed_pricing, refreshed_hedge = inputs(
+            revision=ledger.revision, request_id="R2"
+        )
 
         second, refreshed = build_beta_order_dry_run(
             refreshed_pricing,

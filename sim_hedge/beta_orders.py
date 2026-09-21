@@ -19,6 +19,7 @@ from hedge_engine import (
     register_order_intent,
     strategy_intents_fully_filled,
 )
+from sim_hedge.hedge_proposal import validate_hedge_proposal
 from sim_hedge.order_registry import registry_from_payload, registry_to_payload
 from sim_hedge.strategy_ledger import ledger_from_payload
 
@@ -85,21 +86,22 @@ def build_beta_order_dry_run(
     if max_total_contracts <= 0:
         raise ValueError("max_total_contracts must be positive")
     request_id = str(pricing.get("requestId") or "")
-    if not request_id or hedge.get("source_pricing_request_id") != request_id:
-        raise ValueError("hedge plan and pricing request IDs do not match")
-    if hedge.get("source_strategy_ledger_revision") != ledger.revision:
-        raise ValueError("hedge plan and strategy ledger revisions do not match")
-    if hedge.get("orders_generated") is not False:
-        raise ValueError("expected an offline hedge plan")
     if registry.account_id != ledger.account_id:
         raise ValueError("strategy ledger and order registry accounts do not match")
+    if not request_id:
+        raise ValueError("pricing request ID must not be empty")
+    incremental = validate_hedge_proposal(
+        hedge,
+        pricing_request_id=request_id,
+        account_id=ledger.account_id,
+        base_ledger_revision=ledger.revision,
+        confirmed_beta_positions=ledger.beta_positions,
+    )
     if registry.unknown_client_order_ids:
         raise ValueError("order registry contains unknown submission outcomes")
     if not strategy_intents_fully_filled(registry, ledger, "ALPHA"):
         raise ValueError("Alpha intents are not fully confirmed by broker trades")
 
-    tradable = _object(hedge.get("tradable_solution"), "tradable hedge solution")
-    raw_trades = _object(tradable.get("incremental_trades"), "incremental trades")
     hedge_universe = _string_set(hedge.get("hedge_universe"), "hedge universe")
     alpha_instruments = set(ledger.alpha_positions)
     metadata = {
@@ -108,13 +110,11 @@ def build_beta_order_dry_run(
     }
     created_at = _datetime(str(pricing.get("asOf") or ""))
     legs: list[tuple[str, int, str]] = []
-    incremental: dict[str, int] = {}
-    for instrument, raw_quantity in raw_trades.items():
+    for instrument, raw_quantity in incremental.items():
         code = str(instrument)
         quantity = _integer(raw_quantity, f"Beta trade {code}")
         if code not in hedge_universe or code in alpha_instruments:
             raise ValueError(f"Beta trade {code} is outside the hedge universe")
-        incremental[code] = quantity
         legs.extend(_split_trade(ledger.beta_positions.get(code, 0), quantity, code))
 
     total_contracts = sum(abs(quantity) for _, quantity, _ in legs)
@@ -137,8 +137,7 @@ def build_beta_order_dry_run(
             Decimal("1"), rounding=ROUND_HALF_UP
         ) * tick
         client_order_id = _client_order_id(
-            request_id,
-            ledger.revision,
+            str(hedge["proposal_id"]),
             instrument,
             offset,
             sequence,
@@ -189,8 +188,9 @@ def build_beta_order_dry_run(
             projected.pop(instrument, None)
     return (
         {
+            "source_hedge_proposal_id": hedge["proposal_id"],
             "source_pricing_request_id": request_id,
-            "source_strategy_ledger_revision": ledger.revision,
+            "base_strategy_ledger_revision": ledger.revision,
             "strategy": "BETA",
             "price_source": "RECORDED_MID_ROUNDED_TO_TICK",
             "submission_allowed": False,
@@ -236,13 +236,12 @@ def _request(intent: OrderIntent) -> dict[str, Any]:
 
 
 def _client_order_id(
-    request_id: str,
-    ledger_revision: int,
+    proposal_id: str,
     instrument: str,
     offset: str,
     sequence: int,
 ) -> str:
-    identity = f"{request_id}:{ledger_revision}:{instrument}:{offset}:{sequence}"
+    identity = f"{proposal_id}:{instrument}:{offset}:{sequence}"
     digest = sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"beta-{instrument}-{digest}"
 

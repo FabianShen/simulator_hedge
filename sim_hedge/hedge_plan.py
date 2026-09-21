@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 import json
 import os
@@ -21,6 +21,7 @@ from hedge_engine import (
 )
 from pricing_engine import SabrPricingEngine
 from pricing_engine.__main__ import load_request
+from sim_hedge.hedge_proposal import build_hedge_proposal
 
 
 def main() -> None:
@@ -53,14 +54,24 @@ def main() -> None:
             instrument_greeks=instrument_greeks,
             hedge_pair=hedge_pair,
         )
+        proposal = build_hedge_proposal(
+            pricing_request_id=str(pricing_payload.get("requestId") or ""),
+            account_id=str(ledger_payload.get("account_id") or ""),
+            base_ledger_revision=_integer_quantity(
+                ledger_payload.get("revision"), "ledger revision"
+            ),
+            created_at=datetime.now(timezone.utc),
+            engine_name="simple-delta-gamma-pair",
+            engine_version="1",
+            confirmed_beta_positions=context.beta_positions,
+            incremental_trades=tradable.integer_incremental_trades,
+        )
         output = {
-            "source_pricing_request_id": pricing_payload.get("requestId"),
-            "source_strategy_ledger_revision": ledger_payload.get("revision"),
+            **proposal,
             "hedge_pair": list(hedge_pair),
             "strategy_universe": list(context.strategy_universe),
             "hedge_universe": list(context.hedge_universe),
             "pricing_exclusions": pricing_exclusions,
-            "orders_generated": False,
             "risk": {
                 "alpha": asdict(decision.alpha_risk),
                 "current_beta": asdict(decision.current_hedge_risk),
@@ -71,12 +82,8 @@ def main() -> None:
                 "incremental_trades": dict(decision.incremental_trades),
                 "after_hedge": asdict(decision.after_hedge),
             },
-            "tradable_solution": {
-                "quantity_type": "INTEGER_INCREMENTAL_TRADE",
-                "incremental_trades": dict(tradable.integer_incremental_trades),
-                "after_hedge": asdict(tradable.after_integer_hedge),
-                "normalized_residual": tradable.normalized_residual,
-            },
+            "risk_at_target_beta": asdict(tradable.after_integer_hedge),
+            "normalized_residual": tradable.normalized_residual,
         }
         _write(args.output, output)
     except (ValueError, KeyError, json.JSONDecodeError) as exc:

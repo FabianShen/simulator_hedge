@@ -83,8 +83,9 @@ def setup():
         ],
     }
     proposal = {
+        "source_hedge_proposal_id": "hedge-example",
         "source_pricing_request_id": "R1",
-        "source_strategy_ledger_revision": ledger.revision,
+        "base_strategy_ledger_revision": ledger.revision,
         "strategy": "BETA",
         "submission_allowed": False,
         "orders_submitted": 0,

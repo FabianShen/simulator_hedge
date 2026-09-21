@@ -17,6 +17,7 @@ from hedge_engine import (
     integerize_delta_gamma_hedge,
 )
 from sim_hedge.domain import OptionType
+from sim_hedge.hedge_proposal import build_hedge_proposal
 from sim_hedge.pricing_types import PricingBatch
 from sim_hedge.strategy_universe import StrategyUniverse
 
@@ -101,28 +102,27 @@ def build_live_risk_snapshot(
         instrument_greeks=greeks,
         hedge_pair=hedge_pair,
     )
-    desired_beta = dict(ledger.beta_positions)
-    for instrument, quantity in tradable.integer_incremental_trades.items():
-        target = desired_beta.get(instrument, 0) + quantity
-        if target:
-            desired_beta[instrument] = target
-        else:
-            desired_beta.pop(instrument, None)
-
     timestamp = published_at or datetime.now(timezone.utc)
     if timestamp.tzinfo is None:
         raise ValueError("published_at must be timezone-aware")
+    proposal = build_hedge_proposal(
+        pricing_request_id=pricing.request_id,
+        account_id=ledger.account_id,
+        base_ledger_revision=ledger.revision,
+        created_at=pricing.calculated_at,
+        engine_name="simple-delta-gamma-pair",
+        engine_version="1",
+        confirmed_beta_positions=ledger.beta_positions,
+        incremental_trades=tradable.integer_incremental_trades,
+    )
     return {
+        **proposal,
         "status": "READY",
-        "source_pricing_request_id": pricing.request_id,
         "pricing_calculated_at": pricing.calculated_at.isoformat(),
         "published_at": timestamp.astimezone(timezone.utc).isoformat(),
-        "account_id": ledger.account_id,
-        "strategy_ledger_revision": ledger.revision,
         "spot": spot,
         "hedge_pair": list(hedge_pair),
         "actual_alpha_positions": dict(ledger.alpha_positions),
-        "actual_beta_positions": dict(ledger.beta_positions),
         "risk": {
             "alpha": asdict(decision.alpha_risk),
             "beta": asdict(decision.current_hedge_risk),
@@ -130,11 +130,8 @@ def build_live_risk_snapshot(
             "at_desired_beta": asdict(tradable.after_integer_hedge),
         },
         "continuous_incremental_trades": dict(decision.incremental_trades),
-        "integer_incremental_trades": dict(tradable.integer_incremental_trades),
-        "desired_beta_positions": desired_beta,
         "normalized_residual": tradable.normalized_residual,
         "pricing_exclusions": exclusions,
-        "orders_generated": False,
     }
 
 

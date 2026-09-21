@@ -1,0 +1,26 @@
+{
+  "protocol_version": "sim-hedge/hedge-proposal/v1",
+  "proposal_id": "hedge-30cadabe220a57f11482",
+  "proposal_type": "INCREMENTAL_BETA",
+  "created_at": "2026-09-21T03:00:00+00:00",
+  "source_pricing_request_id": "pricing-20260921T030000Z-7",
+  "account_id": "ETO_EXAMPLE",
+  "base_strategy_ledger_revision": 6,
+  "decision_engine": {
+    "name": "simple-delta-gamma-pair",
+    "version": "1"
+  },
+  "confirmed_beta_positions": {
+    "90007074": 1,
+    "90007084": 1
+  },
+  "incremental_trades": {
+    "90007074": -1,
+    "90007076": 1
+  },
+  "target_beta_positions": {
+    "90007076": 1,
+    "90007084": 1
+  },
+  "orders_generated": false
+}
