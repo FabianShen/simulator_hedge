@@ -16,7 +16,7 @@ from sim_hedge.config import load_env_file
 from sim_hedge.domain import OptionContract
 from sim_hedge.market_monitor import MarketMonitor
 from sim_hedge.market_state import MarketState
-from sim_hedge.live_risk import build_live_risk_snapshot, write_live_risk_snapshot
+from sim_hedge.live_risk import write_live_risk_snapshot
 from sim_hedge.hedge_request import build_hedge_request
 from sim_hedge.option_chain import subscription, summarize
 from sim_hedge.pricing_request import (
@@ -141,15 +141,17 @@ def main() -> None:
         parser.error("--alpha-collection-seconds must not be negative")
     if args.stop_after_recording and not args.record_pricing:
         parser.error("--stop-after-recording requires --record-pricing")
-    if args.strategy_ledger and not args.pricing_target:
-        parser.error("--strategy-ledger requires --pricing-target")
-    if args.hedge_target and not args.strategy_ledger:
-        parser.error("--hedge-target requires --strategy-ledger")
     # Review option chain without activate live feed
     if args.check_options:
         contracts = load_option_chain(args.check_options, args.mode, parser)
         print_option_chain(args.check_options, contracts)
         return
+    if args.strategy_ledger and not args.pricing_target:
+        parser.error("--strategy-ledger requires --pricing-target")
+    if args.strategy_ledger and not args.hedge_target:
+        parser.error("--strategy-ledger requires --hedge-target")
+    if args.hedge_target and not args.strategy_ledger:
+        parser.error("--hedge-target requires --strategy-ledger")
 
     live_token = os.getenv("LIVE_TOKEN")
     if not live_token:
@@ -248,40 +250,19 @@ def main() -> None:
                     if not isinstance(ledger_payload, dict):
                         raise ValueError("strategy ledger is not an object")
                     ledger = ledger_from_payload(ledger_payload)
-                    if hedge_client is not None:
-                        risk = hedge_client.propose(
-                            build_hedge_request(
-                                request, result, ledger,
-                                hedge_candidates=universe.instruments if universe else (),
-                            )
+                    assert hedge_client is not None
+                    risk = hedge_client.propose(
+                        build_hedge_request(
+                            request, result, ledger,
+                            hedge_candidates=universe.instruments if universe else (),
                         )
-                        risk = {
-                            **risk,
-                            "status": "READY",
-                            "pricing_calculated_at": (
-                                result.calculated_at.isoformat()
-                            ),
-                            "published_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    else:
-                        if universe is None:
-                            raise ValueError("strategy universe not selected")
-                        underlying_quote = market_state.snapshot().get(args.underlying)
-                        if underlying_quote is None:
-                            raise ValueError("underlying quote is missing")
-                        risk = build_live_risk_snapshot(
-                            result,
-                            universe,
-                            ledger,
-                            spot=quote_price(underlying_quote),
-                            valuation_contracts=held_valuation_contracts(
-                                ledger, contracts
-                            ),
-                        )
-                        risk = {
-                            **risk,
-                            "source_market_as_of": request.get("asOf"),
-                        }
+                    )
+                    risk = {
+                        **risk,
+                        "status": "READY",
+                        "pricing_calculated_at": result.calculated_at.isoformat(),
+                        "published_at": datetime.now(timezone.utc).isoformat(),
+                    }
                 except (
                     OSError,
                     ValueError,

@@ -58,7 +58,8 @@ gateway with an explicit target:
 Quote callbacks only signal a dedicated pricing worker. The worker coalesces
 updates, permits one RPC at a time, retains the latest valid result, and rejects
 responses whose input snapshot has exceeded the freshness limit. Continuous
-pricing is disabled when `--pricing-target` is omitted.
+pricing is disabled when `--pricing-target` is omitted. Pricing-only diagnostics
+do not require a hedge service.
 
 Once the strategy ledger contains broker-confirmed Alpha/Beta positions, the
 same long-running market process can publish live portfolio Greeks and a
@@ -100,8 +101,8 @@ Later live proposals must not make the order application chase a changing
 absolute target.
 The pricing worker passes the exact market input and its matching pricing result
 to the hedge client. Hedge RPC failures publish `NOT_READY` and do not stop the
-live feed. Omitting `--hedge-target` retains the in-process reference calculation
-for development; production-style testing should exercise the external service.
+live feed. Publishing live portfolio hedge proposals with `--strategy-ledger`
+requires `--hedge-target`; there is no in-process hedge-policy fallback.
 
 Automatic trading is a separate small coordinator. It reads the atomically
 published available-chain Alpha market and hedge proposal, queries authoritative
