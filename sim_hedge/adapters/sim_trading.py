@@ -65,6 +65,15 @@ class BrokerOrderPage:
     has_more: bool
 
 
+@dataclass(frozen=True)
+class BrokerTradeOrderPage:
+    """Unfiltered trade ownership evidence, including unregistered orders."""
+
+    order_ids: tuple[str, ...]
+    next_cursor: str | None
+    has_more: bool
+
+
 class SimTradingPortfolioSource:
     """Authenticated adapter for simulated-trading broker facts and submission."""
 
@@ -142,6 +151,33 @@ class SimTradingPortfolioSource:
             query["cursor"] = cursor
         raw = self._get(f"/api/trades/page?{urlencode(query)}")
         return normalize_confirmed_trade_page(raw, account_id, order_strategies)
+
+    def load_trade_order_ids_page(
+        self, account_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> BrokerTradeOrderPage:
+        """Inspect all trade order IDs without silently filtering unknown ownership."""
+
+        if not account_id:
+            raise ValueError("account_id must not be empty")
+        if limit <= 0 or limit > 100:
+            raise ValueError("trade page limit must be between 1 and 100")
+        query: dict[str, Any] = {"account_id": account_id, "limit": limit}
+        if cursor:
+            query["cursor"] = cursor
+        payload = _unwrap(self._get(f"/api/trades/page?{urlencode(query)}"))
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("items"), list):
+            raise SimTradingError("trade page is invalid")
+        items = payload["items"]
+        if any(not isinstance(item, Mapping) or not item.get("order_id") for item in items):
+            raise SimTradingError("trade page contains a trade without order_id")
+        has_more = payload.get("has_more")
+        next_cursor = payload.get("next_cursor")
+        if not isinstance(has_more, bool) or (has_more and not next_cursor):
+            raise SimTradingError("trade page cursor is invalid")
+        return BrokerTradeOrderPage(
+            tuple(str(item["order_id"]) for item in items),
+            None if next_cursor in (None, "") else str(next_cursor), has_more,
+        )
 
     def load_order_page(
         self,

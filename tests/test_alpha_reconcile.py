@@ -106,6 +106,17 @@ class AlphaReconciliationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conflicts"):
             recover_order_bindings(self.registered, (conflict,))
 
+    def test_counterparty_order_may_report_resolved_execution_price(self) -> None:
+        counterparty_intent = replace(intent(), order_type="COUNTERPARTY", limit_price=None)
+        registered = register_order_intent(empty_order_registry("A1"), counterparty_intent)
+        resolved = replace(
+            broker_order(), order_type="COUNTERPARTY", limit_price=Decimal("0.0002")
+        )
+
+        recovered = recover_order_bindings(registered, (resolved,))
+
+        self.assertEqual(recovered.broker_orders, {"O1": "alpha-1"})
+
     def test_applies_fill_once_and_verifies_broker_position(self) -> None:
         bound = bind_broker_order(
             self.registered, client_order_id="alpha-1", order_id="O1"

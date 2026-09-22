@@ -13,6 +13,7 @@ from hedge_engine import (
     build_hedge_proposal,
     evaluate_delta_gamma_hedge,
     integerize_delta_gamma_hedge,
+    aggregate_greeks,
 )
 
 
@@ -86,7 +87,7 @@ class HedgeRequest:
 class HedgeResult:
     proposal: Mapping[str, object]
     market_as_of: datetime
-    hedge_pair: tuple[str, str]
+    hedge_pair: tuple[str, ...]
     alpha_risk: Greeks
     confirmed_beta_risk: Greeks
     portfolio_risk: Greeks
@@ -95,10 +96,22 @@ class HedgeResult:
 
 
 class ReferenceHedgeEngine:
-    """Current simple two-instrument Delta/Gamma implementation."""
+    """Risk-band monitored two-instrument Delta/Gamma hedge policy."""
 
     name = ENGINE_NAME
     version = ENGINE_VERSION
+
+    def __init__(
+        self,
+        delta_tolerance_ratio: float = 0.15,
+        gamma_tolerance_ratio: float = 0.30,
+        delta_limit: float | None = None,
+        gamma_limit: float | None = None,
+    ):
+        self.delta_tolerance_ratio = delta_tolerance_ratio
+        self.gamma_tolerance_ratio = gamma_tolerance_ratio
+        self.delta_limit = delta_limit
+        self.gamma_limit = gamma_limit
 
     def propose(self, request: HedgeRequest, *, created_at: datetime) -> HedgeResult:
         if created_at.tzinfo is None:
@@ -132,6 +145,56 @@ class ReferenceHedgeEngine:
             )
             for code, item in metadata.items()
         }
+
+        alpha_risk = aggregate_greeks(request.confirmed_alpha_positions, greeks)
+        beta_risk = aggregate_greeks(request.confirmed_beta_positions, greeks)
+        portfolio_risk = alpha_risk.plus(beta_risk)
+
+        alpha_delta_scale = sum(
+            abs(quantity * greeks[instrument].greeks_per_contract.delta)
+            for instrument, quantity
+            in request.confirmed_alpha_positions.items()
+        )
+        alpha_gamma_scale = abs(alpha_risk.gamma)
+
+        delta_limit = (
+            self.delta_limit
+            if self.delta_limit is not None
+            else self.delta_tolerance_ratio * alpha_delta_scale
+        )
+        gamma_limit = (
+            self.gamma_limit
+            if self.gamma_limit is not None
+            else self.gamma_tolerance_ratio * alpha_gamma_scale
+        )
+
+        delta_breached = abs(portfolio_risk.delta) > delta_limit
+        gamma_breached = abs(portfolio_risk.gamma) > gamma_limit
+
+        if not delta_breached and not gamma_breached:
+            # Risk is within the hedge bands.
+            # MSH will be added here later.
+            proposal = build_hedge_proposal(
+                        pricing_request_id=request.source_pricing_request_id,
+                        account_id=request.account_id,
+                        base_ledger_revision=request.base_ledger_revision,
+                        created_at=created_at,
+                        engine_name=self.name,
+                        engine_version=self.version,
+                        confirmed_beta_positions=request.confirmed_beta_positions,
+                        incremental_trades={},
+                    )
+            return HedgeResult(
+                proposal=proposal,
+                market_as_of=request.market_as_of,
+                hedge_pair=(),
+                alpha_risk=alpha_risk,
+                confirmed_beta_risk=beta_risk,
+                portfolio_risk=portfolio_risk,
+                risk_at_target_beta=portfolio_risk,
+                normalized_residual=0.0,
+            )
+
         pair = _select_pair(
             metadata,
             allowed=set(request.hedge_universe)

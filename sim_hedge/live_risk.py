@@ -17,7 +17,7 @@ from hedge_engine import (
     evaluate_delta_gamma_hedge,
     integerize_delta_gamma_hedge,
 )
-from sim_hedge.domain import OptionType
+from sim_hedge.domain import OptionContract, OptionType
 from sim_hedge.pricing_types import PricingBatch
 from sim_hedge.strategy_universe import StrategyUniverse
 
@@ -29,6 +29,7 @@ def build_live_risk_snapshot(
     *,
     spot: float,
     published_at: datetime | None = None,
+    valuation_contracts: tuple[OptionContract, ...] = (),
 ) -> dict[str, Any]:
     """Return risk and a desired Beta position from one pricing result."""
 
@@ -40,7 +41,10 @@ def build_live_risk_snapshot(
             "Alpha and Beta positions overlap: " + ", ".join(sorted(overlap))
         )
 
-    contracts = {contract.instrument: contract for contract in universe.contracts}
+    contracts = {
+        contract.instrument: contract
+        for contract in (*universe.contracts, *valuation_contracts)
+    }
     held = set(ledger.alpha_positions) | set(ledger.beta_positions)
     outside = held - set(contracts)
     if outside:

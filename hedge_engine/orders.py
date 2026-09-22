@@ -68,6 +68,7 @@ class OrderRegistry:
     unknown_client_order_ids: tuple[str, ...] = ()
     superseded_client_order_ids: Mapping[str, str] = field(default_factory=dict)
     abandoned_client_order_ids: tuple[str, ...] = ()
+    retired_cancelled_client_order_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.account_id:
@@ -117,6 +118,15 @@ class OrderRegistry:
             raise ValueError("an unknown submission cannot be abandoned")
         if abandoned & supersession_clients:
             raise ValueError("a superseded intent cannot be abandoned")
+        retired = set(self.retired_cancelled_client_order_ids)
+        if len(retired) != len(self.retired_cancelled_client_order_ids):
+            raise ValueError("retired cancelled intent IDs must be unique")
+        if not retired <= set(clients):
+            raise ValueError("retired cancelled intents must remain bound to broker orders")
+        if retired & (unknown | abandoned | supersession_clients):
+            raise ValueError("retired cancelled intents conflict with another state")
+        if any(self.intents[client_id].strategy != "BETA" for client_id in retired):
+            raise ValueError("only Beta intents may be retired after cancellation")
 
     @property
     def order_strategies(self) -> dict[str, str]:
@@ -154,6 +164,7 @@ def register_order_intent(
         registry.unknown_client_order_ids,
         dict(registry.superseded_client_order_ids),
         registry.abandoned_client_order_ids,
+        registry.retired_cancelled_client_order_ids,
     )
 
 
@@ -200,6 +211,7 @@ def bind_broker_order(
         unknown,
         dict(registry.superseded_client_order_ids),
         registry.abandoned_client_order_ids,
+        registry.retired_cancelled_client_order_ids,
     )
 
 
@@ -224,6 +236,7 @@ def mark_submission_unknown(
         (*registry.unknown_client_order_ids, client_order_id),
         dict(registry.superseded_client_order_ids),
         registry.abandoned_client_order_ids,
+        registry.retired_cancelled_client_order_ids,
     )
 
 
@@ -248,6 +261,11 @@ def supersede_order_intent(
         or replacement_client_order_id in registry.unknown_client_order_ids
     ):
         raise ValueError("an unknown submission cannot participate in supersession")
+    if (
+        original_client_order_id in registry.retired_cancelled_client_order_ids
+        or replacement_client_order_id in registry.retired_cancelled_client_order_ids
+    ):
+        raise ValueError("a retired cancelled intent cannot participate in supersession")
     comparable_original = (
         original.account_id,
         original.strategy,
@@ -287,6 +305,7 @@ def supersede_order_intent(
         registry.unknown_client_order_ids,
         superseded,
         registry.abandoned_client_order_ids,
+        registry.retired_cancelled_client_order_ids,
     )
 
 
@@ -321,6 +340,52 @@ def abandon_unsubmitted_intents(
         registry.unknown_client_order_ids,
         dict(registry.superseded_client_order_ids),
         tuple((*registry.abandoned_client_order_ids, *sorted(requested - previous))),
+        registry.retired_cancelled_client_order_ids,
+    )
+
+
+def retire_verified_absent_submission(
+    registry: OrderRegistry, client_order_id: str
+) -> OrderRegistry:
+    """Retire an unknown intent only after the caller verifies broker absence."""
+
+    if client_order_id not in registry.unknown_client_order_ids:
+        raise ValueError("intent does not have an unknown submission outcome")
+    if client_order_id in registry.broker_orders.values():
+        raise ValueError("unknown submission is bound to a broker order")
+    return OrderRegistry(
+        registry.account_id,
+        registry.revision + 1,
+        dict(registry.intents),
+        dict(registry.broker_orders),
+        tuple(value for value in registry.unknown_client_order_ids if value != client_order_id),
+        dict(registry.superseded_client_order_ids),
+        (*registry.abandoned_client_order_ids, client_order_id),
+        registry.retired_cancelled_client_order_ids,
+    )
+
+
+def retire_verified_cancelled_beta(
+    registry: OrderRegistry, client_order_id: str
+) -> OrderRegistry:
+    """Keep a bound cancelled Beta order as audit, without counting it as open intent."""
+
+    intent = registry.intents.get(client_order_id)
+    if intent is None or intent.strategy != "BETA":
+        raise ValueError("retirement requires a registered Beta intent")
+    if client_order_id not in registry.broker_orders.values():
+        raise ValueError("cancelled Beta intent is not bound to a broker order")
+    if client_order_id in registry.retired_cancelled_client_order_ids:
+        return registry
+    return OrderRegistry(
+        registry.account_id,
+        registry.revision + 1,
+        dict(registry.intents),
+        dict(registry.broker_orders),
+        registry.unknown_client_order_ids,
+        dict(registry.superseded_client_order_ids),
+        registry.abandoned_client_order_ids,
+        (*registry.retired_cancelled_client_order_ids, client_order_id),
     )
 
 
@@ -349,6 +414,7 @@ def strategy_intents_fully_filled(
         if intent.strategy == strategy
         and intent.client_order_id not in registry.superseded_client_order_ids
         and intent.client_order_id not in registry.abandoned_client_order_ids
+        and intent.client_order_id not in registry.retired_cancelled_client_order_ids
     ]
     return bool(intents) and all(
         (order_id := client_orders.get(intent.client_order_id)) is not None
@@ -369,6 +435,7 @@ def all_active_intents_fully_filled(
         for intent in registry.intents.values()
         if intent.client_order_id not in registry.superseded_client_order_ids
         and intent.client_order_id not in registry.abandoned_client_order_ids
+        and intent.client_order_id not in registry.retired_cancelled_client_order_ids
     }
     return bool(active_strategies) and all(
         strategy_intents_fully_filled(registry, ledger, strategy)

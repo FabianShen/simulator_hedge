@@ -11,6 +11,22 @@ NOW = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)
 
 
 class HedgeRequestBuilderTests(unittest.TestCase):
+    def test_explicit_hedge_candidates_do_not_include_valuation_only_options(self) -> None:
+        request = _pricing_request()
+        request["options"].append(_option("HELD-FAR", "OPTION_TYPE_CALL", 3.9))
+        result = _pricing_result()
+        result = PricingBatch(
+            request_id=result.request_id, calculated_at=result.calculated_at,
+            engine_name=result.engine_name, engine_version=result.engine_version,
+            model=result.model, calibration=result.calibration,
+            results=(*result.results, _valuation("HELD-FAR", 0.1, 0.2)),
+        )
+        hedge = build_hedge_request(
+            request, result, _ledger(), hedge_candidates=("CALL", "PUT"),
+        )
+        self.assertIn("HELD-FAR", {item["instrument"] for item in hedge["instruments"]})
+        self.assertEqual(hedge["hedgeUniverse"], ["CALL", "PUT"])
+
     def test_carries_exact_pricing_snapshot_and_confirmed_ledger(self) -> None:
         request = build_hedge_request(_pricing_request(), _pricing_result(), _ledger())
 

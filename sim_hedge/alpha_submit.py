@@ -105,6 +105,8 @@ def submit_alpha_orders(
         max_snapshot_age_seconds,
         max_total_contracts,
     )
+    # Record ownership before the first POST, but only after every preflight check.
+    persist(registry)
     current, outcomes = execute_registered_requests(
         registry, requests, submit=submit, persist=persist
     )

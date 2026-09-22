@@ -2,19 +2,37 @@
 
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from typing import Iterable
 import json
 import os
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sim_hedge.domain import MarketQuote
+from hedge_engine import StrategyLedger
+from sim_hedge.domain import MarketQuote, OptionContract
 from sim_hedge.market_state import MarketState
 from sim_hedge.strategy_universe import StrategyUniverse
 
 
 class PricingRequestError(RuntimeError):
     """A safe and complete pricing request cannot be built."""
+
+
+def held_valuation_contracts(
+    ledger: StrategyLedger, contracts: Iterable[OptionContract]
+) -> tuple[OptionContract, ...]:
+    """Resolve every confirmed holding against the reference contract chain."""
+
+    by_code = {contract.instrument: contract for contract in contracts}
+    held = set(ledger.alpha_positions) | set(ledger.beta_positions)
+    missing = held - set(by_code)
+    if missing:
+        raise PricingRequestError(
+            "held positions are absent from the option chain: "
+            + ", ".join(sorted(missing))
+        )
+    return tuple(by_code[code] for code in sorted(held))
 
 
 @dataclass(frozen=True)
@@ -50,8 +68,9 @@ def build_pricing_request(
     universe: StrategyUniverse,
     policy: PricingRequestPolicy,
     feed_unsafe: bool = False,
+    valuation_contracts: Iterable[OptionContract] = (),
 ) -> dict[str, Any]:
-    """Create a protobuf-JSON-compatible SABR request from one snapshot."""
+    """Calibrate on liquid strategy quotes; also value held options without quotes."""
 
     if not request_id:
         raise ValueError("request_id must not be empty")
@@ -113,6 +132,29 @@ def build_pricing_request(
                 "priceTick": contract.price_tick,
                 "marketPrice": market_price,
                 "marketPriceSource": price_source,
+            }
+        )
+
+    included = set(universe.instruments)
+    for contract in valuation_contracts:
+        if contract.instrument in included:
+            continue
+        if contract.underlying != universe.underlying or contract.maturity != universe.maturity:
+            raise PricingRequestError(
+                f"held option {contract.instrument} is outside the pricing expiry or underlying"
+            )
+        included.add(contract.instrument)
+        # No marketPrice: this option receives model Greeks but cannot distort
+        # SABR calibration with a missing, stale, or illiquid quote.
+        options.append(
+            {
+                "instrument": contract.instrument,
+                "optionType": f"OPTION_TYPE_{contract.option_type.value}",
+                "exerciseStyle": "EXERCISE_STYLE_EUROPEAN",
+                "strike": contract.strike,
+                "expiry": _utc_text(expiry),
+                "contractMultiplier": contract.contract_multiplier,
+                "priceTick": contract.price_tick,
             }
         )
 

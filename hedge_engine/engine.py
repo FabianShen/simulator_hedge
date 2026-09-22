@@ -73,8 +73,8 @@ def evaluate_delta_gamma_hedge(
 ) -> HedgeDecision:
     """Solve continuous incremental trades that neutralize Delta and Gamma."""
 
-    alpha = _aggregate(alpha_positions, instrument_greeks)
-    current_hedge = _aggregate(hedge_positions, instrument_greeks)
+    alpha = aggregate_greeks(alpha_positions, instrument_greeks)
+    current_hedge = aggregate_greeks(hedge_positions, instrument_greeks)
     before = alpha.plus(current_hedge)
     first, second = hedge_pair
     first_greeks = _lookup(first, instrument_greeks).greeks_per_contract
@@ -162,18 +162,16 @@ def integerize_delta_gamma_hedge(
         normalized_residual=score,
     )
 
-
-def _aggregate(
-    positions: Mapping[str, float],
-    instrument_greeks: Mapping[str, InstrumentGreeks],
+def aggregate_greeks(
+        positions: Mapping[str, float],
+        instrument_greeks: Mapping[str, InstrumentGreeks],
 ) -> Greeks:
     total = Greeks()
     for instrument, quantity in positions.items():
-        total = total.plus(
-            _lookup(instrument, instrument_greeks).greeks_per_contract.scaled(quantity)
-        )
+            total = total.plus(
+                _lookup(instrument, instrument_greeks).greeks_per_contract.scaled(quantity)
+            )
     return total
-
 
 def _lookup(
     instrument: str, values: Mapping[str, InstrumentGreeks]

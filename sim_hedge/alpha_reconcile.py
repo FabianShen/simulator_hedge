@@ -262,7 +262,6 @@ def _verify_order_matches_intent(order: BrokerOrder, intent: OrderIntent) -> Non
         expected_direction,
         intent.offset,
         intent.order_type,
-        intent.limit_price,
         abs(intent.quantity),
     )
     actual = (
@@ -272,10 +271,14 @@ def _verify_order_matches_intent(order: BrokerOrder, intent: OrderIntent) -> Non
         order.direction,
         order.offset,
         order.order_type,
-        order.limit_price,
         order.total_volume,
     )
-    if actual != expected:
+    # The simulator resolves COUNTERPARTY/LAST/MARKET to an execution price and
+    # reports that price in limit_price. Only a LIMIT request fixes that value.
+    price_conflict = (
+        intent.order_type == "LIMIT" and order.limit_price != intent.limit_price
+    )
+    if actual != expected or price_conflict:
         raise ValueError(
             f"broker order {order.order_id} conflicts with registered intent "
             f"{intent.client_order_id}"

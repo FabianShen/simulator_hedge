@@ -13,7 +13,8 @@ The gateway is responsible for:
 
 - Converting vendor data into normalized inputs;
 - Selecting a deterministic option market price, such as bid/ask midpoint;
-- Rejecting stale or unsafe market data ;
+- Rejecting stale or unsafe calibration market data;
+- Including held contracts for valuation even when they have no usable quote.
 
 The pricing engine is responsible for:
 
@@ -22,6 +23,12 @@ The pricing engine is responsible for:
 - Calibrating the SABR smile and reporting its fit error;
 - Calculating theoretical values and unit Greeks from the fitted smile;
 - Returning one status per option.
+
+An option with `market_price` participates in SABR calibration. An option
+without `market_price` is valuation-only: it receives theoretical price and
+Greeks from the calibrated smile, but its absent/illiquid quote cannot affect
+the fit. Each request still covers one expiry. The gateway must fail closed if
+a held contract is missing from the reference chain or has another expiry.
 
 ## Units and conventions
 

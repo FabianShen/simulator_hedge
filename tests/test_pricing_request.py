@@ -3,6 +3,7 @@ import math
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 
 from pricing_engine import SabrParameters, SabrPricingEngine
@@ -15,8 +16,10 @@ from sim_hedge.pricing_request import (
     PricingRequestError,
     PricingRequestPolicy,
     build_pricing_request,
+    held_valuation_contracts,
     record_pricing_request,
 )
+from hedge_engine import ConfirmedFill, apply_confirmed_fills, empty_ledger
 from sim_hedge.strategy_universe import StrategyUniverse
 
 
@@ -25,6 +28,55 @@ MATURITY = date(2026, 10, 17)
 
 
 class PricingRequestBuilderTests(unittest.TestCase):
+    def test_held_contract_lookup_fails_closed_when_chain_is_incomplete(self) -> None:
+        state, universe = _ready_market()
+        del state
+        ledger = apply_confirmed_fills(empty_ledger("A1"), (
+            ConfirmedFill(
+                "T1", "O1", "A1", "ALPHA", "MISSING", -1,
+                Decimal("0.1"), NOW,
+            ),
+        ))
+        with self.assertRaisesRegex(PricingRequestError, "absent from the option chain"):
+            held_valuation_contracts(ledger, universe.contracts)
+
+    def test_held_option_from_another_expiry_is_rejected(self) -> None:
+        state, universe = _ready_market()
+        other = OptionContract(
+            "OTHER-DTE", "UNDERLYING", OptionType.PUT, 3.0,
+            date(2026, 11, 17), 10_000, 0.0001,
+        )
+        with self.assertRaisesRegex(PricingRequestError, "outside the pricing expiry"):
+            build_pricing_request(
+                request_id="other-dte", as_of=NOW, market_state=state,
+                universe=universe, policy=_policy(), valuation_contracts=(other,),
+            )
+
+    def test_held_option_without_quote_is_valued_but_not_calibrated(self) -> None:
+        state, universe = _ready_market()
+        held = OptionContract(
+            "HELD-FAR", "UNDERLYING", OptionType.CALL, 3.9, MATURITY,
+            10_000, 0.0001,
+        )
+        request = build_pricing_request(
+            request_id="with-held", as_of=NOW, market_state=state,
+            universe=universe, policy=_policy(), valuation_contracts=(held,),
+        )
+        extra = request["options"][-1]
+        self.assertEqual(extra["instrument"], "HELD-FAR")
+        self.assertNotIn("marketPrice", extra)
+        self.assertNotIn("observedAt", extra)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "request.json"
+            record_pricing_request(path, request)
+            response = SabrPricingEngine().price(load_request(path))
+        self.assertEqual(response.calibration.valid_strikes, 3)
+        result = next(item for item in response.results if item.instrument == "HELD-FAR")
+        self.assertEqual(result.status, "OK")
+        self.assertIsNone(result.market_implied_volatility)
+        self.assertIsNotNone(result.delta)
+        self.assertIsNotNone(result.gamma)
+
     def test_builds_protocol_request_from_ready_market(self) -> None:
         state, universe = _ready_market()
 

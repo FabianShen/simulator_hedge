@@ -121,7 +121,8 @@ class BetaSubmissionTests(unittest.TestCase):
 
         self.assertEqual(updated.order_strategies["OB"], "BETA")
         self.assertEqual(len(report["accepted"]), 1)
-        self.assertEqual(len(persisted), 1)
+        self.assertEqual(len(persisted), 2)
+        self.assertEqual(persisted[0], registry)
 
     def test_rejects_broker_position_mismatch_before_submission(self) -> None:
         proposal, registry, ledger, portfolio = setup()
@@ -162,7 +163,8 @@ class BetaSubmissionTests(unittest.TestCase):
 
         self.assertEqual(updated.unknown_client_order_ids, ("beta-1",))
         self.assertEqual(len(report["unknown"]), 1)
-        self.assertEqual(len(persisted), 1)
+        self.assertEqual(len(persisted), 2)
+        self.assertEqual(persisted[0], registry)
 
     def test_rejects_stale_hedge_snapshot_before_submission(self) -> None:
         proposal, registry, ledger, portfolio = setup()

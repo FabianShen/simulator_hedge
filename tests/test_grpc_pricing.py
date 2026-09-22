@@ -44,6 +44,7 @@ class GrpcPricingIntegrationTests(unittest.TestCase):
 
         self.assertEqual(health.protocol_version, "pricing.v1")
         self.assertEqual(health.engine_name, "reference-python-sabr")
+        self.assertEqual(health.engine_version, "0.2.0")
 
     def test_grpc_matches_direct_engine(self) -> None:
         payload = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
@@ -75,6 +76,22 @@ class GrpcPricingIntegrationTests(unittest.TestCase):
                 direct_result.delta,
                 places=15,
             )
+
+    def test_grpc_values_option_without_market_price(self) -> None:
+        payload = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
+        extra = dict(payload["options"][0])
+        extra["instrument"] = "HELD-FAR"
+        extra["strike"] = 3.9
+        extra.pop("marketPrice", None)
+        extra.pop("marketPriceSource", None)
+        payload["options"].append(extra)
+        with GrpcPricingClient(self.target) as client:
+            response = client.price(payload)
+        held = next(item for item in response.results if item.instrument == "HELD-FAR")
+        self.assertEqual(held.status, "OK")
+        self.assertIsNone(held.market_implied_volatility)
+        self.assertIsNotNone(held.delta)
+        self.assertEqual(response.calibration.valid_strikes, 3)
 
     def test_invalid_request_returns_invalid_argument(self) -> None:
         payload = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))

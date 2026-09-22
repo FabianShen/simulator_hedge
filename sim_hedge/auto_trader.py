@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 import os
@@ -12,9 +12,14 @@ from pathlib import Path
 from time import sleep
 from typing import Any, Mapping
 
-from hedge_engine import empty_ledger, empty_order_registry
+from hedge_engine import abandon_unsubmitted_intents, empty_ledger, empty_order_registry
 from sim_hedge.adapters.sim_trading import SimTradingError, SimTradingPortfolioSource
 from sim_hedge.alpha_orders import build_alpha_order_dry_run
+from sim_hedge.alpha_continuation import (
+    assess_alpha_continuation,
+    select_alpha_continuation_request,
+)
+from sim_hedge.alpha_finalize import validate_alpha_adoption
 from sim_hedge.alpha_plan import build_plan_from_records, project_alpha_plan
 from sim_hedge.alpha_reconcile import (
     load_all_fills,
@@ -30,6 +35,11 @@ from sim_hedge.execution_monitor import build_accepted_execution_batch
 from sim_hedge.order_registry import (
     registry_from_payload,
     registry_to_payload,
+)
+from sim_hedge.order_submission import (
+    execute_registered_requests,
+    validate_registered_requests,
+    validate_timestamp_freshness,
 )
 from sim_hedge.strategy_ledger import ledger_from_payload, ledger_to_payload
 
@@ -47,8 +57,8 @@ def main() -> None:
     )
     parser.add_argument("--base-url", default=os.getenv("SIM_REST_BASE_URL", ""))
     parser.add_argument("--exchange-id", default="SZSE")
-    parser.add_argument("--alpha-market", default="outputs/live-alpha-market.json")
-    parser.add_argument("--risk", default="outputs/live_risk.json")
+    parser.add_argument("--alpha-market")
+    parser.add_argument("--risk")
     parser.add_argument("--registry", default="outputs/order_registry.json")
     parser.add_argument("--ledger", default="outputs/strategy_ledger.json")
     parser.add_argument("--output-dir", default="outputs/auto")
@@ -58,6 +68,11 @@ def main() -> None:
     parser.add_argument("--max-snapshot-age", type=float, default=10.0)
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--recover-unsubmitted-alpha",
+        action="store_true",
+        help="broker-verified, registry-only recovery; never submits orders",
+    )
     parser.add_argument(
         "--preflight",
         action="store_true",
@@ -70,8 +85,20 @@ def main() -> None:
         parser.error("--interval must be positive")
     if args.max_alpha_contracts <= 0 or args.max_beta_contracts <= 0:
         parser.error("contract limits must be positive")
+    if args.preflight and args.recover_unsubmitted_alpha:
+        parser.error("--preflight and --recover-unsubmitted-alpha are exclusive")
 
     source = _source(args.base_url, parser)
+    ledger_path = Path(args.ledger)
+    default_ledger = Path("outputs/strategy_ledger.json")
+    alpha_market_path = Path(args.alpha_market) if args.alpha_market else (
+        Path("outputs/live-alpha-market.json")
+        if ledger_path == default_ledger else ledger_path.with_name("alpha_market.json")
+    )
+    risk_path = Path(args.risk) if args.risk else (
+        Path("outputs/live_risk.json")
+        if ledger_path == default_ledger else ledger_path.with_name("live_risk.json")
+    )
     if args.preflight:
         portfolio = source.load(args.enable_live_orders)
         print(
@@ -82,6 +109,19 @@ def main() -> None:
             f"active_orders={len(portfolio.active_orders)}; orders submitted=0"
         )
         return
+    if args.recover_unsubmitted_alpha:
+        try:
+            count = recover_unsubmitted_alpha(
+                source=source,
+                account_id=args.enable_live_orders,
+                registry_path=Path(args.registry),
+                ledger_path=ledger_path,
+            )
+        except (ValueError, KeyError, json.JSONDecodeError, OSError, SimTradingError) as exc:
+            raise SystemExit(f"Alpha recovery blocked: {exc}") from exc
+        print(f"RECOVERED: abandoned {count} unsubmitted Alpha intents; orders submitted=0")
+        return
+    print(f"inputs: alpha_market={alpha_market_path} risk={risk_path}", flush=True)
     last_status = None
     while True:
         try:
@@ -89,10 +129,10 @@ def main() -> None:
                 source=source,
                 account_id=args.enable_live_orders,
                 exchange_id=args.exchange_id,
-                alpha_market_path=Path(args.alpha_market),
-                risk_path=Path(args.risk),
+                alpha_market_path=alpha_market_path,
+                risk_path=risk_path,
                 registry_path=Path(args.registry),
-                ledger_path=Path(args.ledger),
+                ledger_path=ledger_path,
                 output_dir=Path(args.output_dir),
                 budget_fraction=Decimal(args.budget_fraction),
                 max_alpha_contracts=args.max_alpha_contracts,
@@ -143,7 +183,25 @@ def run_once(
     else:
         ledger = empty_ledger(account_id)
 
-    if not registry.intents and not ledger.applied_trades:
+    adoption_path = output_dir / "alpha_adoption.json"
+    adopted = adoption_path.exists()
+    if adopted:
+        plan_path = output_dir / "alpha_plan.json"
+        validate_alpha_adoption(
+            _object(_read(adoption_path), "Alpha adoption"),
+            _object(_read(plan_path), "saved Alpha plan"),
+            registry, ledger,
+        )
+
+    active_intents = set(registry.intents) - set(registry.abandoned_client_order_ids)
+    if (
+        not active_intents
+        and not registry.broker_orders
+        and not registry.unknown_client_order_ids
+        and not ledger.applied_trades
+        and not ledger.alpha_positions
+        and not ledger.beta_positions
+    ):
         pricing = _object(_read(alpha_market_path), "Alpha market snapshot")
         if (
             portfolio.account.trading_day is None
@@ -151,6 +209,10 @@ def run_once(
             != portfolio.account.trading_day.isoformat()
         ):
             raise ValueError("Alpha market and broker trading days do not match")
+        validate_timestamp_freshness(
+            "Alpha market snapshot", pricing.get("asOf"),
+            now=datetime.now(timezone.utc), max_age=max_snapshot_age,
+        )
         portfolio_record = asdict(portfolio)
         portfolio_record["positions"] = list(portfolio_record["positions"])
         portfolio_record["active_orders"] = list(
@@ -175,8 +237,6 @@ def run_once(
         output_dir.mkdir(parents=True, exist_ok=True)
         _write(output_dir / "alpha_plan.json", alpha)
         _write(output_dir / "alpha_orders.json", dry_run)
-        _write(registry_path, registry_to_payload(registry))
-
         def persist_alpha(value) -> None:
             _write(registry_path, registry_to_payload(value))
 
@@ -216,7 +276,92 @@ def run_once(
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "reconciliation.json", reconciliation.report)
     if not reconciliation.report["safe_for_hedging"]:
+        plan_path = output_dir / "alpha_plan.json"
+        if plan_path.exists() and ledger.alpha_positions and not adopted:
+            assessment = assess_alpha_continuation(
+                _object(_read(plan_path), "saved Alpha plan"),
+                registry,
+                ledger,
+                reconciliation.report,
+            )
+            _write(output_dir / "alpha_continuation.json", assessment)
+            if assessment["status"] in {"WAITING_FOR_BROKER", "NEEDS_TOP_UP"}:
+                if any(order.order_id not in registry.broker_orders for order in orders):
+                    return "WAITING ALPHA: broker has an order outside the registry"
+                if any(order.status not in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED"} for order in orders):
+                    return "WAITING ALPHA: a broker order was cancelled or has an unknown status"
+                if sum(abs(value) for value in assessment["target_positions"].values()) > max_alpha_contracts:
+                    raise ValueError("saved Alpha target exceeds --max-alpha-contracts")
+                market = _object(_read(alpha_market_path), "Alpha market snapshot")
+                if market.get("tradingDate") != trading_day.isoformat():
+                    raise ValueError("Alpha market and broker trading days do not match")
+                retry_path = output_dir / "alpha_retry_after.json"
+                retry_after = _retry_after(_read(retry_path)) if retry_path.exists() else {}
+                now = datetime.now(timezone.utc)
+                request, reason = select_alpha_continuation_request(
+                    assessment, market, registry, now=now,
+                    max_age=max_snapshot_age, retry_after=retry_after,
+                )
+                if request is None:
+                    return f"WAITING ALPHA: {reason}"
+                validate_registered_requests(
+                    [request], registry, strategy="ALPHA",
+                    max_total_contracts=max_alpha_contracts,
+                )
+                current_portfolio = source.load(account_id)
+                active_order_ids = {order.order_id for order in current_portfolio.active_orders}
+                if (
+                    current_portfolio.account.account_id != account_id
+                    or current_portfolio.account.trading_day != trading_day
+                    or current_portfolio.account.account_type != "ETF_OPTION"
+                    or current_portfolio.signed_positions != ledger.alpha_positions
+                    or not active_order_ids <= set(registry.broker_orders)
+                    or any(
+                        order.instrument == str(request["symbol"])
+                        for order in current_portfolio.active_orders
+                    )
+                    or current_portfolio.account.status != "NORMAL"
+                    or current_portfolio.account.risk_state not in (None, "NORMAL")
+                ):
+                    raise ValueError("broker state changed before Alpha continuation")
+
+                def persist_alpha_continuation(value) -> None:
+                    _write(registry_path, registry_to_payload(value))
+
+                persist_alpha_continuation(registry)
+                registry, outcomes = execute_registered_requests(
+                    registry, (request,),
+                    submit=source.submit_etf_option_order,
+                    persist=persist_alpha_continuation,
+                )
+                _write(output_dir / "alpha_continuation_submission.json", {
+                    "attempted_at": now.isoformat(),
+                    "account_id": account_id,
+                    "source_alpha_market_id": market.get("requestId"),
+                    **outcomes,
+                })
+                if outcomes["unknown"]:
+                    return "STOP ALPHA: submission outcome is unknown; reconcile before restart"
+                if outcomes["rejected"]:
+                    error = outcomes["rejected"][0]["error"]
+                    if "BID1_MISSING" not in error:
+                        return f"STOP ALPHA: broker rejected continuation: {error}"
+                    retry_after[str(request["client_order_id"])] = now + timedelta(seconds=30)
+                    _write(retry_path, {key: value.isoformat() for key, value in retry_after.items()})
+                    return "WAITING ALPHA: broker bid missing; other eligible legs may continue"
+                return "SUBMITTED ALPHA: 1 continuation order"
         return "WAITING: broker orders or fills are not fully reconciled"
+    plan_path = output_dir / "alpha_plan.json"
+    if plan_path.exists() and ledger.alpha_positions and not adopted:
+        assessment = assess_alpha_continuation(
+            _object(_read(plan_path), "saved Alpha plan"),
+            registry,
+            ledger,
+            reconciliation.report,
+        )
+        _write(output_dir / "alpha_continuation.json", assessment)
+        if assessment["status"] != "TARGET_REACHED":
+            return f"WAITING ALPHA: {assessment['status']}"
     if not risk_path.exists():
         return "WAITING: no live hedge proposal"
 
@@ -241,7 +386,6 @@ def run_once(
     )
     _write(output_dir / "accepted_hedge_proposal.json", accepted)
     _write(output_dir / "beta_orders.json", dry_run)
-    _write(registry_path, registry_to_payload(registry))
     if not dry_run["requests"]:
         return "READY: hedge proposal requires no Beta orders"
 
@@ -262,6 +406,57 @@ def run_once(
     _write(registry_path, registry_to_payload(registry))
     _write(output_dir / "beta_submission.json", report)
     return _submission_status("BETA", report)
+
+
+def recover_unsubmitted_alpha(
+    *,
+    source: SimTradingPortfolioSource,
+    account_id: str,
+    registry_path: Path,
+    ledger_path: Path,
+) -> int:
+    """Retire orphaned Alpha intents only after checking the empty broker account.
+
+    This deliberately cannot submit or cancel an order. Any ambiguous broker
+    evidence blocks recovery rather than silently discarding ownership.
+    """
+
+    registry = registry_from_payload(_object(_read(registry_path), "registry"))
+    ledger = ledger_from_payload(_object(_read(ledger_path), "ledger"))
+    if registry.account_id != account_id or ledger.account_id != account_id:
+        raise ValueError("registry, ledger, and requested account IDs do not match")
+    if (
+        registry.broker_orders or registry.unknown_client_order_ids
+        or registry.superseded_client_order_ids
+        or ledger.applied_trades or ledger.alpha_positions or ledger.beta_positions
+    ):
+        raise ValueError("submitted/unknown orders or confirmed trades exist")
+    pending = tuple(sorted(
+        client_id for client_id in registry.intents
+        if client_id not in registry.abandoned_client_order_ids
+    ))
+    if not pending or any(registry.intents[client_id].strategy != "ALPHA" for client_id in pending):
+        raise ValueError("no exclusively unsubmitted Alpha intents to recover")
+    portfolio = source.load(account_id)
+    if portfolio.account.account_id != account_id or portfolio.account.trading_day is None:
+        raise ValueError("broker account or trading day could not be verified")
+    if portfolio.account.status != "NORMAL" or portfolio.account.risk_state not in (None, "NORMAL"):
+        raise ValueError("broker account is not healthy")
+    if portfolio.positions or portfolio.active_orders:
+        raise ValueError("broker has positions or active orders")
+    if any(registry.intents[client_id].created_at.date() != portfolio.account.trading_day for client_id in pending):
+        raise ValueError("intent creation day differs from broker trading day")
+    if load_all_orders(source, account_id, portfolio.account.trading_day):
+        raise ValueError("broker order history is not empty")
+    if load_all_fills(source, registry):
+        raise ValueError("broker has confirmed trades")
+    # Recheck after paginated reads to catch changes while inspecting history.
+    portfolio = source.load(account_id)
+    if portfolio.account.account_id != account_id or portfolio.positions or portfolio.active_orders:
+        raise ValueError("broker state changed during recovery")
+    updated = abandon_unsubmitted_intents(registry, pending)
+    _write(registry_path, registry_to_payload(updated))
+    return len(pending)
 
 
 def _submission_status(strategy: str, report: Mapping[str, Any]) -> str:
@@ -303,6 +498,17 @@ def _object(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{name} is not an object")
     return value
+
+
+def _retry_after(value: Any) -> dict[str, datetime]:
+    raw = _object(value, "Alpha retry schedule")
+    schedule = {}
+    for client_id, timestamp in raw.items():
+        parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("Alpha retry timestamp must be timezone-aware")
+        schedule[str(client_id)] = parsed
+    return schedule
 
 
 if __name__ == "__main__":

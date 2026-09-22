@@ -11,7 +11,7 @@ from pricing_engine import (
 
 
 ENGINE_NAME = "reference-python-sabr"
-ENGINE_VERSION = "0.1.0"
+ENGINE_VERSION = "0.2.0"
 PROTOCOL_VERSION = "pricing.v1"
 
 
@@ -121,10 +121,8 @@ def health_response() -> pricing_pb2.HealthResponse:
     )
 
 
-def _market_price(option: pricing_pb2.OptionInput) -> float:
-    if not option.HasField("market_price"):
-        raise ValueError(f"market_price missing for {option.instrument}")
-    return option.market_price
+def _market_price(option: pricing_pb2.OptionInput) -> float | None:
+    return option.market_price if option.HasField("market_price") else None
 
 
 def _option_type(value: int) -> str:

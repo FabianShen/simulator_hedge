@@ -13,6 +13,11 @@ to convert volatility into option prices. It intentionally uses only Python's
 standard library. Its deterministic coarse-to-fine calibration is educational,
 not a claim of production calibration precision.
 
+Options with a market price calibrate the smile. Options without one are
+valuation-only and still receive model prices and Greeks. This lets the
+gateway value confirmed holdings with no bid/ask without putting illiquid or
+stale prices into the fit.
+
 Run it entirely offline against the included request:
 
 ```powershell

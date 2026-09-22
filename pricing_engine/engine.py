@@ -17,15 +17,19 @@ class OptionObservation:
     instrument: str
     option_type: str
     strike: float
-    market_price: float
+    market_price: float | None
 
     def __post_init__(self) -> None:
         if not self.instrument:
             raise ValueError("instrument must not be empty")
         if self.option_type not in {"CALL", "PUT"}:
             raise ValueError("option_type must be 'CALL' or 'PUT'")
-        if self.strike <= 0 or self.market_price <= 0:
-            raise ValueError("strike and market_price must be positive")
+        if self.strike <= 0 or (
+            self.market_price is not None and (
+                not isfinite(self.market_price) or self.market_price <= 0
+            )
+        ):
+            raise ValueError("strike and supplied market_price must be positive")
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,8 @@ class SabrPricingEngine:
         errors: dict[str, str] = {}
 
         for option in request.options:
+            if option.market_price is None:
+                continue
             try:
                 volatility = implied_volatility(
                     forward,

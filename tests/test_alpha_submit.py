@@ -75,7 +75,8 @@ class AlphaSubmissionTests(unittest.TestCase):
         self.assertEqual(len(report["accepted"]), 2)
         self.assertEqual(report["rejected"], [])
         self.assertEqual(report["unknown"], [])
-        self.assertEqual(len(persisted), 2)
+        self.assertEqual(len(persisted), 3)
+        self.assertEqual(persisted[0], registry)
         self.assertEqual(
             updated.order_strategies,
             {"O-9001": "ALPHA", "O-9002": "ALPHA"},
@@ -102,7 +103,8 @@ class AlphaSubmissionTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(report["unknown"]), 1)
-        self.assertEqual(len(persisted), 1)
+        self.assertEqual(len(persisted), 2)
+        self.assertEqual(persisted[0], registry)
         self.assertEqual(
             updated.unknown_client_order_ids,
             (proposal["requests"][0]["client_order_id"],),

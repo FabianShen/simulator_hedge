@@ -97,6 +97,21 @@ class SimTradingNormalizationTests(unittest.TestCase):
 
 
 class SimTradingSourceTests(unittest.TestCase):
+    def test_unfiltered_trade_order_ids_include_unregistered_orders(self) -> None:
+        def request(method, url, headers, body):
+            self.assertEqual(method, "GET")
+            self.assertIn("/api/trades/page?", url)
+            return {"success": True, "data": {
+                "items": [{"order_id": "O-known"}, {"order_id": "O-unregistered"}],
+                "has_more": False, "next_cursor": None,
+            }}
+
+        source = SimTradingPortfolioSource(
+            "http://simulator.test", access_token="test", request_json=request,
+        )
+        page = source.load_trade_order_ids_page("A1")
+        self.assertEqual(page.order_ids, ("O-known", "O-unregistered"))
+
     def test_source_uses_only_read_endpoint_for_portfolio(self) -> None:
         calls = []
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))["payload"]

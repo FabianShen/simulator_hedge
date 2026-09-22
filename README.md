@@ -1,6 +1,6 @@
 # sim_hedge
 
-`sim_hedge` is for simulating trade, able to do actual trading.
+`sim_hedge` is for simulating hedge, able to do actual hedging.
 
 Commands load the nearest `.env` found from the working directory upward.
 Existing PowerShell environment variables take precedence. Copy `.env.example`
@@ -81,7 +81,13 @@ versioned incremental Beta proposal after every accepted pricing result:
 
 The ledger is reloaded after every pricing response, so a separately reconciled
 fill becomes part of the next risk calculation without restarting the live
-feed. `live_risk.json` is replaced atomically and contains a proposal ID, its
+feed. The pricing request also reloads the ledger: near-ATM two-sided quotes
+calibrate SABR, while held contracts outside that set are valuation-only (no
+market price required). Only the near-ATM contracts are Beta candidates.
+Currently all held options must share that pricing expiry; another expiry
+blocks risk until multi-expiry pricing is implemented. Restart an already
+running pricing service to pick up the valuation-only behavior.
+`live_risk.json` is replaced atomically and contains a proposal ID, its
 base ledger revision, confirmed Beta positions, integer incremental trades, the
 resulting target Beta positions, and current portfolio Greeks. The required
 identity and position equation are documented in
@@ -119,11 +125,129 @@ not require typed confirmation:
 ```
 
 On an empty account/ledger it initializes Alpha once from the 30% margin rule.
+When `--ledger` points to an account-specific directory, the default Alpha
+market and risk inputs are `alpha_market.json` and `live_risk.json` beside that
+ledger. You can override either with `--alpha-market` or `--risk`. The trader
+prints the resolved paths at startup. Always use a registry from the same
+account.
+
+If a stale input left **unsubmitted** Alpha intents in the registry, stop the
+trader, then run this recovery-only check against the simulator before retrying:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.auto_trader `
+  --enable-live-orders YOUR_ACCOUNT_ID `
+  --registry outputs\new_account\order_registry.json `
+  --ledger outputs\new_account\strategy_ledger.json `
+  --max-alpha-contracts YOUR_HARD_ALPHA_LIMIT `
+  --max-beta-contracts 10 `
+  --recover-unsubmitted-alpha
+```
+
+Recovery sends no orders. It keeps the old intents as abandoned audit history
+and refuses to proceed if the broker has positions, active orders, or any order
+history on the intents' trading day. Do not delete or hand-edit the registry.
+
+For a partially filled Alpha batch, inspect the pinned target against the
+confirmed ledger and latest reconciliation without placing more orders:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_continuation `
+  outputs\auto\alpha_plan.json `
+  outputs\new_account\order_registry.json `
+  outputs\new_account\strategy_ledger.json `
+  outputs\new_account\reconciliation.json `
+  --output outputs\new_account\alpha_continuation.json
+```
+
+`WAITING_FOR_BROKER` means at least one registered order is not terminal,
+even if the account snapshot omits it from `active_orders`.
+`NEEDS_TOP_UP` shows the remaining sells by original option, not a new
+margin-sized basket. This assessment command does not submit or cancel anything.
+For an existing partially initialized account, `auto_trader` can continue one
+previously registered Alpha leg per cycle when broker positions reconcile and
+the Alpha snapshot is fresh. A working order for one option does not block a
+different option, but the trader will not submit twice for the same option
+while its order remains working. It sends
+`COUNTERPARTY` without locally checking bid or ask; the simulator resolves or
+rejects the order. `BID1_MISSING` delays that leg for 30 seconds while other
+legs may proceed, but it does not count as a fill or complete Alpha. Other
+broker rejections stop the trader. A cancelled or partially cancelled Alpha order is not topped
+up automatically yet; the trader remains blocked rather than guessing a new
+order quantity. Restarting `auto_trader` without `--preflight` may submit orders.
 After confirmed fills reconcile, it automatically accepts and submits fresh
 incremental Beta proposals with `COUNTERPARTY`. It waits while orders are active
 and blocks on stale inputs, position mismatch, unhealthy account state, or an
 unknown submission outcome. The hard limits are independent safety ceilings;
-they do not alter the margin formula.
+they do not alter the margin formula. A proposal larger than
+`--max-beta-contracts` is blocked, not silently split or resized. Review the
+fresh proposal and choose an explicit cap before enabling live simulated
+orders.
+
+If you manually cancel a Beta order in the simulator, stop `auto_trader` and
+reconcile before doing anything else. For a broker-confirmed `CANCELLED` order
+with **zero** fills, this recovery command retires just that unfilled intent:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.beta_cancelled `
+  outputs\new_account\order_registry.json `
+  outputs\new_account\strategy_ledger.json `
+  outputs\new_account\reconciliation.json `
+  --order-id O20260922C4A7E61CE27C4922
+```
+
+It sends no orders and retains the broker order ID for audit. It refuses a
+partial fill, an active order, changed positions/trades, or stale local files.
+After it succeeds, reconcile again; only a new, fresh hedge proposal may
+decide whether another Beta order is needed. Do not hand-edit the registry or
+use this command for an order with any fills.
+
+To keep the Alpha positions already filled and stop pursuing unsubmitted Alpha
+legs, first stop `auto_trader` and run a fresh broker reconciliation.
+
+If reconciliation reports an unknown Alpha submission after a simulator `5xx`,
+do **not** retry the order just to clear the flag. For the current account,
+inspect and retire that single ID only after fresh, complete broker checks:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_unknown `
+  outputs\new_account\order_registry.json `
+  outputs\new_account\strategy_ledger.json `
+  outputs\auto\alpha_continuation_submission.json `
+  --client-order-id alpha-EXAMPLE_ID
+```
+
+This command sends no orders. It requires matching broker/ledger positions,
+no active orders, no matching broker order, and no trades for unregistered
+orders; otherwise it leaves the registry unchanged. It writes an audit beside
+the registry. If it succeeds, reconcile again before finalizing Alpha:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.reconcile `
+  outputs\new_account\order_registry.json `
+  --ledger outputs\new_account\strategy_ledger.json `
+  --report-output outputs\new_account\reconciliation.json
+```
+
+`safe_for_hedging=False` is expected until the other unsubmitted Alpha intents
+are retired. With the refreshed report, adopt only the filled Alpha holdings:
+
+```powershell
+.\.venv\Scripts\python.exe -m sim_hedge.alpha_finalize `
+  outputs\auto\alpha_plan.json `
+  outputs\new_account\order_registry.json `
+  outputs\new_account\strategy_ledger.json `
+  outputs\new_account\reconciliation.json `
+  --output outputs\auto\alpha_adoption.json
+```
+
+This command never trades. It preserves the broker-filled Alpha positions,
+records the unsubmitted legs as abandoned, and prevents `auto_trader` from
+resuming the original Alpha target. It fails if any submission outcome is
+unknown, an order is active or not fully filled, or the broker/ledger snapshot
+does not match. Do not hand-edit the registry to bypass those checks. The
+adoption does **not** fix missing pricing Greeks: live risk and Beta orders stay
+blocked until the pricing request covers every held instrument.
 
 Portfolio state comes from the simulated-trading system, not from the market
 feed. The first read-only boundary fetches the authoritative absolute snapshot

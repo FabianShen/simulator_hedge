@@ -15,6 +15,7 @@ from hedge_engine.engine import (
     TradableHedgeDecision,
     evaluate_delta_gamma_hedge,
     integerize_delta_gamma_hedge,
+    aggregate_greeks,
 )
 from hedge_engine.orders import (
     OrderIntent,
@@ -25,6 +26,8 @@ from hedge_engine.orders import (
     empty_order_registry,
     mark_submission_unknown,
     register_order_intent,
+    retire_verified_absent_submission,
+    retire_verified_cancelled_beta,
     strategy_intents_fully_filled,
     supersede_order_intent,
 )
@@ -59,7 +62,10 @@ __all__ = [
     "mark_submission_unknown",
     "integerize_delta_gamma_hedge",
     "register_order_intent",
+    "retire_verified_absent_submission",
+    "retire_verified_cancelled_beta",
     "strategy_intents_fully_filled",
     "supersede_order_intent",
     "validate_hedge_proposal",
+    "aggregate_greeks",
 ]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from hedge_engine import StrategyLedger
 from sim_hedge.pricing_types import PricingBatch
@@ -12,6 +12,8 @@ def build_hedge_request(
     pricing_request: Mapping[str, Any],
     pricing_result: PricingBatch,
     ledger: StrategyLedger,
+    *,
+    hedge_candidates: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     request_id = str(pricing_request.get("requestId") or "")
     if not request_id or pricing_result.request_id != request_id:
@@ -78,10 +80,16 @@ def build_hedge_request(
             + ", ".join(sorted(missing_held))
         )
 
+    eligible = (
+        set(metadata) if hedge_candidates is None else set(hedge_candidates)
+    )
+    if eligible - set(metadata):
+        raise ValueError("hedge candidates are outside the pricing request")
     hedge_universe = [
         item["instrument"]
         for item in instruments
-        if item["instrument"] not in ledger.alpha_positions
+        if item["instrument"] in eligible
+        and item["instrument"] not in ledger.alpha_positions
     ]
     return {
         "requestId": f"hedge-{request_id}-ledger-{ledger.revision}",

@@ -78,7 +78,10 @@ def _load_protocol_request(payload: dict) -> SabrPricingRequest:
                 instrument=option["instrument"],
                 option_type=_option_type(option["optionType"]),
                 strike=float(option["strike"]),
-                market_price=float(option["marketPrice"]),
+                market_price=(
+                    float(option["marketPrice"])
+                    if "marketPrice" in option else None
+                ),
             )
             for option in payload["options"]
         ),

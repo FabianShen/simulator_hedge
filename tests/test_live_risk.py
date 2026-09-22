@@ -16,6 +16,21 @@ NOW = datetime(2026, 9, 21, 2, 30, tzinfo=timezone.utc)
 
 
 class LiveRiskTests(unittest.TestCase):
+    def test_held_alpha_outside_tradable_universe_contributes_risk(self) -> None:
+        tradable = _universe()
+        tradable = StrategyUniverse(
+            tradable.underlying, tradable.maturity, tradable.center_strike,
+            tradable.strikes,
+            tuple(item for item in tradable.contracts if item.instrument != "ALPHA"),
+        )
+        snapshot = build_live_risk_snapshot(
+            _pricing(), tradable, _ledger(), spot=3.3,
+            valuation_contracts=(_contract("ALPHA", OptionType.CALL, 3.4),),
+        )
+        self.assertEqual(snapshot["status"], "READY")
+        self.assertEqual(snapshot["risk"]["alpha"]["delta"], -2)
+        self.assertEqual(snapshot["hedge_pair"], ["CALL", "PUT"])
+
     def test_builds_risk_and_desired_beta_without_orders(self) -> None:
         snapshot = build_live_risk_snapshot(
             _pricing(), _universe(), _ledger(), spot=3.3, published_at=NOW

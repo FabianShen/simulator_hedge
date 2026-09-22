@@ -23,6 +23,7 @@ from sim_hedge.pricing_request import (
     PricingRequestError,
     PricingRequestPolicy,
     build_pricing_request,
+    held_valuation_contracts,
     record_pricing_request,
 )
 from sim_hedge.pricing_worker import ContinuousPricingWorker
@@ -215,12 +216,22 @@ def main() -> None:
         def make_pricing_request(request_id, as_of):
             if universe is None:
                 raise PricingRequestError("strategy universe not selected")
+            held_contracts = ()
+            if args.strategy_ledger and Path(args.strategy_ledger).exists():
+                ledger_payload = json.loads(
+                    Path(args.strategy_ledger).read_text(encoding="utf-8")
+                )
+                if not isinstance(ledger_payload, dict):
+                    raise PricingRequestError("strategy ledger is not an object")
+                ledger = ledger_from_payload(ledger_payload)
+                held_contracts = held_valuation_contracts(ledger, contracts)
             return build_pricing_request(
                 request_id=request_id,
                 as_of=as_of,
                 market_state=market_state,
                 universe=universe,
                 policy=pricing_policy,
+                valuation_contracts=held_contracts,
                 feed_unsafe=(
                     source.health.data_unsafe or source.health.state != "running"
                 ),
@@ -239,7 +250,10 @@ def main() -> None:
                     ledger = ledger_from_payload(ledger_payload)
                     if hedge_client is not None:
                         risk = hedge_client.propose(
-                            build_hedge_request(request, result, ledger)
+                            build_hedge_request(
+                                request, result, ledger,
+                                hedge_candidates=universe.instruments if universe else (),
+                            )
                         )
                         risk = {
                             **risk,
@@ -260,6 +274,9 @@ def main() -> None:
                             universe,
                             ledger,
                             spot=quote_price(underlying_quote),
+                            valuation_contracts=held_valuation_contracts(
+                                ledger, contracts
+                            ),
                         )
                         risk = {
                             **risk,

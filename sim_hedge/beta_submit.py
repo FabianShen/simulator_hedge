@@ -115,6 +115,7 @@ def submit_beta_orders(
         max_snapshot_age_seconds,
         max_total_contracts,
     )
+    persist(registry)
     updated, outcomes = execute_registered_requests(
         registry, requests, submit=submit, persist=persist
     )
