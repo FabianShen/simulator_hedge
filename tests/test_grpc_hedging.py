@@ -7,7 +7,7 @@ from hedge_service.grpc_server import create_server
 from hedging.v1 import hedging_pb2
 from sim_hedge.adapters.grpc_hedging import GrpcHedgeClient, HedgeServiceError
 from sim_hedge.adapters.grpc_hedging import _proposal_from_proto
-
+from hedge_service import ReferenceHedgeEngine
 
 REQUEST_PATH = (
     Path(__file__).parents[1]
@@ -93,7 +93,33 @@ class GrpcHedgingIntegrationTests(unittest.TestCase):
     def test_response_without_source_market_time_is_rejected(self) -> None:
         with self.assertRaisesRegex(HedgeServiceError, "source_market_as_of"):
             _proposal_from_proto(hedging_pb2.HedgeProposal())
+            
+    def test_grpc_preserves_no_trade_decision(self) -> None:
+        server, port = create_server(
+            "127.0.0.1:0",
+            engine=ReferenceHedgeEngine(
+                delta_limit=1e9,
+                gamma_limit=1e9,
+            ),
+            clock=lambda: CREATED_AT,
+        )
+        server.start()
+        try:
+            payload = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
 
+            with GrpcHedgeClient(f"127.0.0.1:{port}") as client:
+                proposal = client.propose(payload)
+
+            self.assertEqual(proposal["incremental_trades"], {})
+            self.assertEqual(proposal["hedge_pair"], [])
+            self.assertEqual(
+                proposal["target_beta_positions"],
+                proposal["confirmed_beta_positions"],
+            )
+            self.assertEqual(proposal["normalized_residual"], 0.0)
+            self.assertFalse(proposal["orders_generated"])
+        finally:
+            server.stop(grace=None).wait()
 
 if __name__ == "__main__":
     unittest.main()
