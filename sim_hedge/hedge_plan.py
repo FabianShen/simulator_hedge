@@ -12,14 +12,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import (
-    build_hedge_proposal,
     Greeks,
     InstrumentGreeks,
     MarketSnapshot,
     build_hedge_context,
-    evaluate_delta_gamma_hedge,
-    integerize_delta_gamma_hedge,
 )
+from hedge_service import HedgeInstrument, HedgeRequest, ReferenceHedgeEngine
 from pricing_engine import SabrPricingEngine
 from pricing_engine.__main__ import load_request
 
@@ -36,73 +34,45 @@ def main() -> None:
         pricing_payload = _object(_read(args.pricing_request), "pricing request")
         portfolio_payload = _object(_read(args.portfolio_snapshot), "portfolio")
         ledger_payload = _object(_read(args.strategy_ledger), "strategy ledger")
-        (
-            decision,
-            hedge_pair,
-            instrument_greeks,
-            context,
-            pricing_exclusions,
-        ) = build_offline_hedge_decision(
+        result, context, pricing_exclusions = build_offline_hedge_decision(
             Path(args.pricing_request),
             pricing_payload,
             portfolio_payload,
             ledger_payload,
             max_market_age_seconds=args.max_market_age,
         )
-        tradable = integerize_delta_gamma_hedge(
-            decision,
-            instrument_greeks=instrument_greeks,
-            hedge_pair=hedge_pair,
-        )
-        proposal = build_hedge_proposal(
-            pricing_request_id=str(pricing_payload.get("requestId") or ""),
-            account_id=str(ledger_payload.get("account_id") or ""),
-            base_ledger_revision=_integer_quantity(
-                ledger_payload.get("revision"), "ledger revision"
-            ),
-            created_at=datetime.now(timezone.utc),
-            engine_name="simple-delta-gamma-pair",
-            engine_version="1",
-            confirmed_beta_positions=context.beta_positions,
-            incremental_trades=tradable.integer_incremental_trades,
-        )
         output = {
-            **proposal,
+            **result.proposal,
             "source_market_as_of": pricing_payload.get("asOf"),
-            "hedge_pair": list(hedge_pair),
+            "hedge_pair": list(result.hedge_pair),
             "strategy_universe": list(context.strategy_universe),
             "hedge_universe": list(context.hedge_universe),
             "pricing_exclusions": pricing_exclusions,
             "risk": {
-                "alpha": asdict(decision.alpha_risk),
-                "current_beta": asdict(decision.current_hedge_risk),
-                "before_hedge": asdict(decision.before_hedge),
+                "alpha": asdict(result.alpha_risk),
+                "current_beta": asdict(result.confirmed_beta_risk),
+                "before_hedge": asdict(result.portfolio_risk),
             },
-            "continuous_solution": {
-                "quantity_type": "CONTINUOUS_INCREMENTAL_TRADE",
-                "incremental_trades": dict(decision.incremental_trades),
-                "after_hedge": asdict(decision.after_hedge),
-            },
-            "risk_at_target_beta": asdict(tradable.after_integer_hedge),
-            "normalized_residual": tradable.normalized_residual,
+            "risk_at_target_beta": asdict(result.risk_at_target_beta),
+            "normalized_residual": result.normalized_residual,
         }
         _write(args.output, output)
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
         raise SystemExit(f"hedge plan failed: {exc}") from exc
     print(
-        f"hedge pair: {hedge_pair[0]}, {hedge_pair[1]} "
-        f"before delta={decision.before_hedge.delta:.6f} "
-        f"gamma={decision.before_hedge.gamma:.6f}"
+        f"hedge pair: {', '.join(result.hedge_pair) or 'none'} "
+        f"before delta={result.portfolio_risk.delta:.6f} "
+        f"gamma={result.portfolio_risk.gamma:.6f}"
     )
     print(
-        f"after delta={decision.after_hedge.delta:.6g} "
-        f"gamma={decision.after_hedge.gamma:.6g}"
+        f"after delta={result.risk_at_target_beta.delta:.6g} "
+        f"gamma={result.risk_at_target_beta.gamma:.6g}"
     )
     print(
         "integer Beta trades: "
         + ", ".join(
             f"{instrument}={quantity:+d}"
-            for instrument, quantity in tradable.integer_incremental_trades.items()
+            for instrument, quantity in result.proposal["incremental_trades"].items()
         )
     )
     if pricing_exclusions:
@@ -188,16 +158,38 @@ def build_offline_hedge_decision(
         instrument_greeks=instrument_greeks,
         max_market_age_seconds=max_market_age_seconds,
     )
-    hedge_pair = _select_hedge_pair(
-        pricing_payload, set(context.hedge_universe), instrument_greeks
+    pricing_request_id = str(pricing_payload.get("requestId") or "")
+    ledger_revision = _integer_quantity(ledger_payload.get("revision"), "ledger revision")
+    request = HedgeRequest(
+        request_id=f"hedge-{pricing_request_id}-ledger-{ledger_revision}",
+        source_pricing_request_id=pricing_request_id,
+        market_as_of=market.as_of,
+        account_id=ledger_account,
+        base_ledger_revision=ledger_revision,
+        spot=market.spot,
+        instruments=tuple(
+            HedgeInstrument(
+                instrument=instrument,
+                option_type=str(option["optionType"]).removeprefix("OPTION_TYPE_"),
+                strike=float(option["strike"]),
+                contract_multiplier=_integer_quantity(
+                    option["contractMultiplier"], f"contract multiplier for {instrument}"
+                ),
+                delta=float(results[instrument].delta),
+                gamma=float(results[instrument].gamma),
+                theta=float(results[instrument].theta_per_year),
+                vega=float(results[instrument].vega_per_absolute_volatility),
+            )
+            for instrument, option in valid_metadata.items()
+        ),
+        confirmed_alpha_positions=context.alpha_positions,
+        confirmed_beta_positions=context.beta_positions,
+        hedge_universe=context.hedge_universe,
     )
-    decision = evaluate_delta_gamma_hedge(
-        alpha_positions=context.alpha_positions,
-        hedge_positions=context.beta_positions,
-        instrument_greeks=instrument_greeks,
-        hedge_pair=hedge_pair,
+    result = ReferenceHedgeEngine().propose(
+        request, created_at=datetime.now(timezone.utc)
     )
-    return decision, hedge_pair, instrument_greeks, context, pricing_exclusions
+    return result, context, pricing_exclusions
 
 
 def _usable_instrument_greeks(
@@ -259,37 +251,6 @@ def _pricing_exclusion(result: Any) -> dict[str, str]:
         else f"pricing status is {result.status}"
     )
     return {"status": str(result.status), "reason": reason}
-
-
-def _select_hedge_pair(
-    pricing: Mapping[str, Any],
-    allowed: set[str],
-    greeks: Mapping[str, InstrumentGreeks],
-) -> tuple[str, str]:
-    spot = float(_object(pricing.get("underlying"), "underlying")["spot"])
-    candidates = [
-        option for option in pricing["options"] if option["instrument"] in allowed
-    ]
-    calls = sorted(
-        (option for option in candidates if option["optionType"] == "OPTION_TYPE_CALL"),
-        key=lambda option: abs(float(option["strike"]) - spot),
-    )
-    puts = sorted(
-        (option for option in candidates if option["optionType"] == "OPTION_TYPE_PUT"),
-        key=lambda option: abs(float(option["strike"]) - spot),
-    )
-    pairs = sorted(
-        ((call, put) for call in calls for put in puts),
-        key=lambda pair: abs(float(pair[0]["strike"]) - spot)
-        + abs(float(pair[1]["strike"]) - spot),
-    )
-    for call, put in pairs:
-        first = greeks[str(call["instrument"])].greeks_per_contract
-        second = greeks[str(put["instrument"])].greeks_per_contract
-        determinant = first.delta * second.gamma - second.delta * first.gamma
-        if abs(determinant) >= 1e-12:
-            return str(call["instrument"]), str(put["instrument"])
-    raise ValueError("no non-singular call/put hedge pair outside the Alpha legs")
 
 
 def _actual_positions(

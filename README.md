@@ -463,13 +463,14 @@ a broker portfolio plus a fill-confirmed Alpha/Beta strategy ledger:
   --output outputs\hedge_plan.json
 ```
 
-The pure `hedge_engine` aggregates contract-multiplied Alpha Greeks, selects the
-nearest non-Alpha call/put pair, and solves for continuous incremental trades
-that neutralize current Delta and Gamma. It then evaluates the four surrounding
-integer combinations and keeps the one with the smallest normalized Delta/Gamma
-residual. `outputs/strategy_ledger.json` keeps fill-confirmed Alpha and Beta
-positions separate. Hedge planning accepts only a `CONFIRMED` ledger, requires
-`broker positions == Alpha actual positions + Beta actual positions`, and
+The offline command replays the recorded request through the pricing engine,
+validates the broker portfolio and market observations, then calls the same
+`ReferenceHedgeEngine` used by the live hedge service. That engine checks its
+risk bands before choosing a non-Alpha call/put pair, solving Delta/Gamma risk,
+and integerizing any required trade. An inside-band portfolio produces a
+no-trade proposal. `outputs/strategy_ledger.json` keeps fill-confirmed Alpha
+and Beta positions separate. Hedge planning accepts only a `CONFIRMED` ledger,
+requires `broker positions == Alpha actual positions + Beta actual positions`, and
 rejects active broker orders. Alpha instruments contribute risk but are removed
 from the nearest-DTE Beta universe. A pricing failure on a held Alpha/Beta
 contract stops planning; a failure on an unheld contract removes only that
