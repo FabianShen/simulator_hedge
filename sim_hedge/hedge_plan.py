@@ -121,6 +121,11 @@ def build_offline_hedge_decision(
         if _datetime(str(option["expiry"])) == nearest_expiry
     ]
     metadata = {str(option["instrument"]): option for option in selected_options}
+    quoted_metadata = {
+        instrument: option
+        for instrument, option in metadata.items()
+        if _is_quoted_option(option, instrument)
+    }
     outside_nearest = held_instruments - set(metadata)
     if outside_nearest:
         raise ValueError(
@@ -142,11 +147,13 @@ def build_offline_hedge_decision(
         spot_observed_at=_datetime(str(underlying["observedAt"])),
         marks={
             code: float(option["marketPrice"])
-            for code, option in valid_metadata.items()
+            for code, option in quoted_metadata.items()
+            if code in instrument_greeks
         },
         observed_at={
             code: _datetime(str(option["observedAt"]))
-            for code, option in valid_metadata.items()
+            for code, option in quoted_metadata.items()
+            if code in instrument_greeks
         },
     )
     context = build_hedge_context(
@@ -154,7 +161,10 @@ def build_offline_hedge_decision(
         alpha_positions=alpha_positions,
         beta_positions=beta_positions,
         broker_positions=broker_positions,
-        strategy_universe=tuple(valid_metadata),
+        strategy_universe=tuple(
+            instrument for instrument in quoted_metadata
+            if instrument in instrument_greeks
+        ),
         instrument_greeks=instrument_greeks,
         max_market_age_seconds=max_market_age_seconds,
     )
@@ -190,6 +200,16 @@ def build_offline_hedge_decision(
         request, created_at=datetime.now(timezone.utc)
     )
     return result, context, pricing_exclusions
+
+
+def _is_quoted_option(option: Mapping[str, Any], instrument: str) -> bool:
+    has_price = "marketPrice" in option
+    has_observed_at = "observedAt" in option
+    if has_price != has_observed_at:
+        raise ValueError(
+            f"quoted option {instrument} must contain both marketPrice and observedAt"
+        )
+    return has_price
 
 
 def _usable_instrument_greeks(

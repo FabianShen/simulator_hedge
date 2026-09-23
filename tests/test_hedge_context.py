@@ -83,6 +83,25 @@ class HedgeContextTests(unittest.TestCase):
                 instrument_greeks=self.greeks,
             )
 
+    def test_held_beta_outside_candidates_requires_greeks_but_not_a_quote(self) -> None:
+        greeks = {
+            **self.greeks,
+            "HELD-BETA": InstrumentGreeks(
+                "HELD-BETA", Greeks(delta=4, gamma=2)
+            ),
+        }
+        context = build_hedge_context(
+            market=self.market,
+            alpha_positions={"ALPHA": -2},
+            beta_positions={"HELD-BETA": 1},
+            broker_positions={"ALPHA": -2, "HELD-BETA": 1},
+            strategy_universe=("CALL", "PUT"),
+            instrument_greeks=greeks,
+        )
+
+        self.assertIn("HELD-BETA", context.instrument_greeks)
+        self.assertNotIn("HELD-BETA", context.hedge_universe)
+
 
 if __name__ == "__main__":
     unittest.main()

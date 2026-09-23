@@ -13,7 +13,7 @@ def build_hedge_request(
     pricing_result: PricingBatch,
     ledger: StrategyLedger,
     *,
-    hedge_candidates: Iterable[str] | None = None,
+    hedge_candidates: Iterable[str],
 ) -> dict[str, Any]:
     request_id = str(pricing_request.get("requestId") or "")
     if not request_id or pricing_result.request_id != request_id:
@@ -80,9 +80,7 @@ def build_hedge_request(
             + ", ".join(sorted(missing_held))
         )
 
-    eligible = (
-        set(metadata) if hedge_candidates is None else set(hedge_candidates)
-    )
+    eligible = set(hedge_candidates)
     if eligible - set(metadata):
         raise ValueError("hedge candidates are outside the pricing request")
     hedge_universe = [

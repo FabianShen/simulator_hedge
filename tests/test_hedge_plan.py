@@ -171,6 +171,49 @@ class HedgePlanReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "valid pricing Greeks missing for held positions"):
             _decision(pricing)
 
+    def test_valuation_only_held_beta_contributes_risk_but_is_not_a_candidate(self) -> None:
+        pricing = _recorded_pricing()
+        held_beta = "C-3.6"
+        held_option = next(
+            item for item in pricing["options"]
+            if item["instrument"] == held_beta
+        )
+        held_option.pop("marketPrice")
+        held_option.pop("observedAt")
+        alpha = {"C-3.45": -1000}
+        beta = {held_beta: 7}
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write_pricing(Path(directory), pricing)
+            response = SabrPricingEngine().price(load_request(path))
+            result, context, exclusions = build_offline_hedge_decision(
+                path, pricing, _portfolio(alpha, beta), _ledger(alpha, beta),
+            )
+        priced = {item.instrument: item for item in response.results}[held_beta]
+
+        self.assertEqual(exclusions, {})
+        self.assertIn(held_beta, context.instrument_greeks)
+        self.assertNotIn(held_beta, context.hedge_universe)
+        self.assertAlmostEqual(result.confirmed_beta_risk.delta, 7 * priced.delta)
+        self.assertAlmostEqual(result.confirmed_beta_risk.gamma, 7 * priced.gamma)
+        self.assertNotIn(held_beta, result.proposal["incremental_trades"])
+
+    def test_valuation_only_held_alpha_replays_without_becoming_a_candidate(self) -> None:
+        pricing = _recorded_pricing()
+        held_alpha = "C-3.45"
+        held_option = next(
+            item for item in pricing["options"]
+            if item["instrument"] == held_alpha
+        )
+        held_option.pop("marketPrice")
+        held_option.pop("observedAt")
+
+        result, context, exclusions = _decision(pricing)
+
+        self.assertEqual(exclusions, {})
+        self.assertIn(held_alpha, context.instrument_greeks)
+        self.assertNotIn(held_alpha, context.hedge_universe)
+        self.assertNotEqual(result.alpha_risk.delta, 0)
+
     def test_active_broker_orders_block_planning(self) -> None:
         portfolio = _portfolio({"C-3.45": -1000})
         portfolio["active_orders"] = [{"order_id": "O1"}]

@@ -78,26 +78,19 @@ def build_hedge_context(
     hedge_universe = tuple(code for code in universe if code not in alpha)
     if not hedge_universe:
         raise ValueError("Alpha positions consume the entire strategy universe")
-    outside = set(beta) - set(hedge_universe)
-    if outside:
-        raise ValueError(
-            "Beta positions are outside the allowed hedge universe: "
-            + ", ".join(sorted(outside))
-        )
-
     required = set(expected) | set(hedge_universe)
     missing_greeks = required - set(instrument_greeks)
     if missing_greeks:
         raise ValueError("missing pricing Greeks: " + ", ".join(sorted(missing_greeks)))
-    missing_market = required - set(market.marks)
+    missing_market = set(hedge_universe) - set(market.marks)
     if missing_market:
         raise ValueError("missing market marks: " + ", ".join(sorted(missing_market)))
-    missing_times = required - set(market.observed_at)
+    missing_times = set(hedge_universe) - set(market.observed_at)
     if missing_times:
         raise ValueError(
             "missing market observation times: " + ", ".join(sorted(missing_times))
         )
-    for code in required:
+    for code in hedge_universe:
         mark = float(market.marks[code])
         observed = market.observed_at[code]
         if not isfinite(mark) or mark <= 0:

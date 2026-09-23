@@ -22,13 +22,18 @@ class HedgeRequestBuilderTests(unittest.TestCase):
             results=(*result.results, _valuation("HELD-FAR", 0.1, 0.2)),
         )
         hedge = build_hedge_request(
-            request, result, _ledger(), hedge_candidates=("CALL", "PUT"),
+            request, result, _ledger(beta={"HELD-FAR": 3}),
+            hedge_candidates=("CALL", "PUT"),
         )
         self.assertIn("HELD-FAR", {item["instrument"] for item in hedge["instruments"]})
         self.assertEqual(hedge["hedgeUniverse"], ["CALL", "PUT"])
+        self.assertEqual(hedge["confirmedBetaPositions"], {"HELD-FAR": 3})
 
     def test_carries_exact_pricing_snapshot_and_confirmed_ledger(self) -> None:
-        request = build_hedge_request(_pricing_request(), _pricing_result(), _ledger())
+        request = build_hedge_request(
+            _pricing_request(), _pricing_result(), _ledger(),
+            hedge_candidates=("ALPHA", "CALL", "PUT"),
+        )
 
         self.assertEqual(request["sourcePricingRequestId"], "pricing-1")
         self.assertEqual(request["marketAsOf"], "2026-09-21T03:00:00Z")
@@ -60,21 +65,73 @@ class HedgeRequestBuilderTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "held positions.*ALPHA"):
-            build_hedge_request(_pricing_request(), result, _ledger())
+            build_hedge_request(
+                _pricing_request(), result, _ledger(),
+                hedge_candidates=("CALL", "PUT"),
+            )
+
+    def test_invalid_unheld_candidate_is_excluded_without_blocking(self) -> None:
+        priced = _pricing_result()
+        invalid_call = OptionValuation(
+            instrument="CALL",
+            status="INVALID_INPUT",
+            error="bad market",
+            theoretical_price=None,
+            market_implied_volatility=None,
+            model_implied_volatility=None,
+            implied_volatility_error=None,
+            delta=None,
+            gamma=None,
+            theta_per_year=None,
+            vega_per_absolute_volatility=None,
+            rho_per_absolute_rate=None,
+        )
+        result = PricingBatch(
+            request_id=priced.request_id,
+            calculated_at=priced.calculated_at,
+            engine_name=priced.engine_name,
+            engine_version=priced.engine_version,
+            model=priced.model,
+            calibration=priced.calibration,
+            results=(priced.results[0], invalid_call, priced.results[2]),
+        )
+
+        request = build_hedge_request(
+            _pricing_request(), result, _ledger(),
+            hedge_candidates=("CALL", "PUT"),
+        )
+
+        self.assertNotIn("CALL", {item["instrument"] for item in request["instruments"]})
+        self.assertEqual(request["hedgeUniverse"], ["PUT"])
 
 
-def _ledger():
-    fill = ConfirmedFill(
-        trade_id="T1",
-        order_id="O1",
-        account_id="A1",
-        strategy="ALPHA",
-        instrument="ALPHA",
-        quantity=-1,
-        price=Decimal("0.1"),
-        executed_at=NOW,
+def _ledger(beta=None):
+    fills = [
+        ConfirmedFill(
+            trade_id="T1",
+            order_id="O1",
+            account_id="A1",
+            strategy="ALPHA",
+            instrument="ALPHA",
+            quantity=-1,
+            price=Decimal("0.1"),
+            executed_at=NOW,
+        )
+    ]
+    fills.extend(
+        ConfirmedFill(
+            trade_id=f"B-{index}",
+            order_id=f"BO-{index}",
+            account_id="A1",
+            strategy="BETA",
+            instrument=instrument,
+            quantity=quantity,
+            price=Decimal("0.1"),
+            executed_at=NOW,
+        )
+        for index, (instrument, quantity) in enumerate((beta or {}).items())
     )
-    return apply_confirmed_fills(empty_ledger("A1"), (fill,))
+    return apply_confirmed_fills(empty_ledger("A1"), fills)
 
 
 def _pricing_request():
