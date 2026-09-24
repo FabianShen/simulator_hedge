@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import (
-    ConfirmedFill,
     OrderIntent,
     OrderRegistry,
     StrategyLedger,
@@ -25,6 +24,7 @@ from sim_hedge.adapters.sim_trading import (
     SimTradingPortfolioSource,
 )
 from sim_hedge.config import load_env_file
+from sim_hedge.execution.alpha.reconcile import load_all_fills
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 from sim_hedge.state.ledger import ledger_from_payload, ledger_to_payload
 
@@ -130,7 +130,7 @@ def adopt_alpha_replacement(
         original_client_order_id=original_client_order_id,
         replacement_client_order_id=replacement_intent.client_order_id,
     )
-    fills = _load_all_owned_fills(source, updated_registry)
+    fills = load_all_fills(source, updated_registry)
     replacement_fills = tuple(
         fill for fill in fills if fill.order_id == replacement_order.order_id
     )
@@ -226,28 +226,6 @@ def _order_id_for_client(registry: OrderRegistry, client_order_id: str) -> str:
     if len(matches) != 1:
         raise ValueError("superseded intent must have exactly one broker order")
     return matches[0]
-
-
-def _load_all_owned_fills(
-    source: SimTradingPortfolioSource, registry: OrderRegistry
-) -> tuple[ConfirmedFill, ...]:
-    fills: list[ConfirmedFill] = []
-    cursor = None
-    seen_cursors: set[str] = set()
-    while True:
-        page = source.load_confirmed_trade_page(
-            registry.account_id,
-            registry.order_strategies,
-            cursor=cursor,
-            limit=100,
-        )
-        fills.extend(page.fills)
-        if not page.has_more:
-            return tuple(fills)
-        if page.next_cursor is None or page.next_cursor in seen_cursors:
-            raise SimTradingError("trade pagination cursor did not advance")
-        seen_cursors.add(page.next_cursor)
-        cursor = page.next_cursor
 
 
 def _read(path: str) -> Any:

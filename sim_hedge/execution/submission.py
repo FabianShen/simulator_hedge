@@ -95,40 +95,6 @@ def validate_registered_requests(
     return requests
 
 
-def validate_pricing_freshness(
-    pricing: Mapping[str, Any],
-    instruments: Sequence[str],
-    *,
-    now: datetime,
-    max_age: float,
-) -> None:
-    if now.tzinfo is None:
-        raise ValueError("current time must be timezone-aware")
-    if max_age <= 0:
-        raise ValueError("max_snapshot_age_seconds must be positive")
-    _require_fresh("pricing snapshot", pricing.get("asOf"), now=now, max_age=max_age)
-    underlying = _object(pricing.get("underlying"), "pricing underlying")
-    _require_fresh(
-        "underlying", underlying.get("observedAt"), now=now, max_age=max_age
-    )
-    options = pricing.get("options")
-    if not isinstance(options, list):
-        raise ValueError("pricing options must be a list")
-    option_times = {
-        str(_object(value, "pricing option").get("instrument") or ""): value.get(
-            "observedAt"
-        )
-        for value in options
-    }
-    for instrument in instruments:
-        _require_fresh(
-            instrument,
-            option_times.get(instrument),
-            now=now,
-            max_age=max_age,
-        )
-
-
 def validate_timestamp_freshness(
     name: str, value: Any, *, now: datetime, max_age: float
 ) -> None:
