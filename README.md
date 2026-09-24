@@ -39,7 +39,7 @@ Run the same engine behind the local versioned gRPC boundary:
 .\.venv\Scripts\python.exe -m pricing_engine.grpc_server
 
 # Terminal 2
-.\.venv\Scripts\python.exe -m sim_hedge.price_remote `
+.\.venv\Scripts\python.exe -m sim_hedge.pricing_client.remote `
   protocols\pricing\v1\examples\price_request.json
 ```
 
@@ -162,7 +162,7 @@ For a partially filled Alpha batch, inspect the pinned target against the
 confirmed ledger and latest reconciliation without placing more orders:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_continuation `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.continuation `
   outputs\auto\alpha_plan.json `
   outputs\new_account\order_registry.json `
   outputs\new_account\strategy_ledger.json `
@@ -199,7 +199,7 @@ reconcile before doing anything else. For a broker-confirmed `CANCELLED` order
 with **zero** fills, this recovery command retires just that unfilled intent:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.beta_cancelled `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.beta.cancelled `
   outputs\new_account\order_registry.json `
   outputs\new_account\strategy_ledger.json `
   outputs\new_account\reconciliation.json `
@@ -220,7 +220,7 @@ do **not** retry the order just to clear the flag. For the current account,
 inspect and retire that single ID only after fresh, complete broker checks:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_unknown `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.unknown `
   outputs\new_account\order_registry.json `
   outputs\new_account\strategy_ledger.json `
   outputs\auto\alpha_continuation_submission.json `
@@ -243,7 +243,7 @@ the registry. If it succeeds, reconcile again before finalizing Alpha:
 are retired. With the refreshed report, adopt only the filled Alpha holdings:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_finalize `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.finalize `
   outputs\auto\alpha_plan.json `
   outputs\new_account\order_registry.json `
   outputs\new_account\strategy_ledger.json `
@@ -272,9 +272,9 @@ $env:SIM_REST_BASE_URL = "http://your-simulator:8000"
 $env:SIM_USERNAME = "your-user"
 $env:SIM_PASSWORD = "your-password"
 
-.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote --list-accounts
+.\.venv\Scripts\python.exe -m sim_hedge.state.portfolio_remote --list-accounts
 $env:SIM_ACCOUNT_ID = "your-etf-option-account-id"
-.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote `
+.\.venv\Scripts\python.exe -m sim_hedge.state.portfolio_remote `
   --output outputs\portfolio_state.json
 ```
 
@@ -282,7 +282,7 @@ To verify WebSocket recovery without processing incremental events yet:
 
 ```powershell
 $env:SIM_WS_URL = "ws://your-simulator:8001/ws/trading"
-.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote `
+.\.venv\Scripts\python.exe -m sim_hedge.state.portfolio_remote `
   --output outputs\portfolio_state.json
 ```
 
@@ -294,7 +294,7 @@ been observed.
 After snapshot bootstrap has been verified, keep the position stream running:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.portfolio_remote --watch `
+.\.venv\Scripts\python.exe -m sim_hedge.state.portfolio_remote --watch `
   --output outputs\portfolio_state.json
 ```
 
@@ -327,7 +327,7 @@ smaller pricing/hedging universe.
 Build an inspectable Alpha plan entirely from recorded inputs:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_plan `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.plan `
   outputs\live-alpha-market.json `
   outputs\portfolio_state.json `
   --output outputs\alpha_plan.json
@@ -342,7 +342,7 @@ separate total-contract safety limit before submitting.
 Generate registered Alpha order intents from saved data without submitting:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_orders `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.orders `
   outputs\alpha_plan.json `
   --exchange-id SZSE `
   --output outputs\alpha_order_dry_run.json `
@@ -359,7 +359,7 @@ Alpha plan and dry-run.
 The standalone submission command remains useful for diagnostics:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_submit `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.submit `
   outputs\alpha_order_dry_run.json `
   outputs\order_registry.json `
   --max-total-contracts 4
@@ -377,7 +377,7 @@ After submission, recover order IDs and rebuild the Alpha ledger only from the
 simulator's authoritative order, trade, and portfolio queries:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_reconcile `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.reconcile `
   outputs\order_registry.json `
   --ledger outputs\strategy_ledger.json `
   --initialize-ledger
@@ -398,7 +398,7 @@ If a registered Alpha order is cancelled with zero fills and you
 deliberately replace it manually, record that ownership explicitly:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.alpha_adopt `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.alpha.adopt `
   outputs\order_registry.json `
   outputs\strategy_ledger.json `
   --supersede alpha-90007076-9ce8f22e804c3d77 `
@@ -417,7 +417,7 @@ unexplained broker/ledger mismatch to pass.
 Persist order ownership before any future submission:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.order_registry register `
+.\.venv\Scripts\python.exe -m sim_hedge.state.registry register `
   outputs\order-intent.json `
   --output outputs\order_registry.json
 ```
@@ -426,7 +426,7 @@ After the simulator accepts that intent, bind its returned `order_id` using a
 small JSON object containing `client_order_id` and `order_id`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.order_registry bind `
+.\.venv\Scripts\python.exe -m sim_hedge.state.registry bind `
   outputs\order-binding.json `
   --registry outputs\order_registry.json `
   --output outputs\order_registry.json
@@ -440,7 +440,7 @@ ownership and retry boundary required by a later order adapter.
 Replay normalized, broker-confirmed fills into the separate Alpha/Beta ledger:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.strategy_ledger `
+.\.venv\Scripts\python.exe -m sim_hedge.state.ledger `
   outputs\confirmed-fills.json `
   --output outputs\strategy_ledger.json
 ```
@@ -465,7 +465,7 @@ Build an offline Delta/Gamma hedge decision from the same pricing request and
 a broker portfolio plus a fill-confirmed Alpha/Beta strategy ledger:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.hedge_plan `
+.\.venv\Scripts\python.exe -m sim_hedge.hedge_client.plan `
   outputs\live-pricing-request.json `
   outputs\portfolio_state.json `
   outputs\strategy_ledger.json `
@@ -513,7 +513,7 @@ trading SDKs:
   --delta-limit 0 --gamma-limit 0
 
 # Terminal 2: recorded request; no live data or broker connection
-.\.venv\Scripts\python.exe -m sim_hedge.hedge_remote `
+.\.venv\Scripts\python.exe -m sim_hedge.hedge_client.remote `
   protocols\hedging\v1\examples\hedge_request.json
 ```
 
@@ -525,7 +525,7 @@ Convert that reviewed hedge plan into registered Beta order intents without
 contacting the simulator:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.beta_orders `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.beta.orders `
   outputs\accepted_hedge_proposal.json `
   outputs\strategy_ledger.json `
   outputs\order_registry.json `
@@ -550,7 +550,7 @@ intents remain in the registry as abandoned audit history and can never be
 bound or submitted:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.beta_orders `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.beta.orders `
   outputs\accepted_hedge_proposal.json `
   outputs\strategy_ledger.json `
   outputs\order_registry.json `
@@ -563,7 +563,7 @@ bound or submitted:
 Submit a fresh Beta proposal with a contract cap:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.beta_submit `
+.\.venv\Scripts\python.exe -m sim_hedge.execution.beta.submit `
   outputs\beta_order_dry_run.json `
   outputs\order_registry.json `
   outputs\strategy_ledger.json `
@@ -590,7 +590,7 @@ After submission, reconcile all registered Alpha and Beta orders and fills:
 
 The next hedge cycle is allowed only when `safe_for_hedging`, `position_match`,
 and `all_fills_complete` are all true. The older
-`python -m sim_hedge.alpha_reconcile` command remains as a compatible alias.
+`python -m sim_hedge.execution.alpha.reconcile` command remains as a compatible alias.
 The combined report defaults to `outputs/portfolio_reconciliation.json`.
 
 The pure `execution_engine` package models an accepted incremental proposal
@@ -604,7 +604,7 @@ to an older proposal produce `BLOCKED_BY_PRIOR_PROPOSAL` and explicit
 cancellation candidate IDs, but the model never cancels or replaces them.
 
 Every newly generated Beta `OrderIntent` stores its hedge `proposal_id` in the
-order registry. `sim_hedge.execution_state.assess_broker_execution()` joins
+order registry. `sim_hedge.state.execution_state.assess_broker_execution()` joins
 that ownership with the confirmed strategy ledger and the read-only portfolio
 snapshot. It refuses unknown submissions, unregistered active orders,
 unreconciled partial fills, broker/ledger position differences, and Beta fills
@@ -617,14 +617,14 @@ orders. The destination is write-once: repeating the same acceptance is
 idempotent, while a different proposal cannot replace it.
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.execution_monitor accept `
+.\.venv\Scripts\python.exe -m sim_hedge.state.monitor accept `
   outputs\live_risk.json `
   outputs\strategy_ledger.json `
   --output outputs\accepted_hedge_proposal.json
 ```
 
 Use `outputs\accepted_hedge_proposal.json`—not the continually replaced
-`live_risk.json`—as the hedge-plan argument to `sim_hedge.beta_orders`.
+`live_risk.json`—as the hedge-plan argument to `sim_hedge.execution.beta.orders`.
 After that batch completes, retain it as audit history and accept the next
 proposal under a new filename; acceptance never overwrites a previous batch.
 
@@ -632,7 +632,7 @@ After reconciling broker fills, inspect the frozen batch with one read-only
 portfolio request:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.execution_monitor status `
+.\.venv\Scripts\python.exe -m sim_hedge.state.monitor status `
   outputs\accepted_hedge_proposal.json `
   outputs\order_registry.json `
   outputs\strategy_ledger.json `
@@ -648,7 +648,7 @@ ledger, run the read-only reconciliation command first.
 The complete execution lifecycle can be verified while the market is closed:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.execution_replay `
+.\.venv\Scripts\python.exe -m sim_hedge.state.replay `
   protocols\execution\v1\examples\lifecycle.json `
   --output outputs\execution_replay.json
 ```
@@ -745,22 +745,26 @@ $env:DATA_TOKEN = "your-data-token"
 
 ```text
 sim_hedge/
-├── protocols/
-│   └── pricing/v1/      Versioned external pricing contract
-├── pricing_engine/         Independent reference-engine project
+├── protocols/             Versioned external contracts
+├── pricing_engine/        Independent reference pricing service
+├── hedge_engine/          Pure hedge calculations
+├── hedge_service/         Independent hedge strategy service
 ├── sim_hedge/
-│   ├── __init__.py       Public package information
-│   ├── __main__.py       Command-line entry point
-│   ├── adapters/
-│   │   ├── ymm_live.py        Live SDK connection and translation boundary
-│   │   └── ymm_reference.py   Data SDK contract-metadata boundary
-│   ├── domain.py         Domain values only
-│   ├── market_monitor.py Diagnostic status and atomic JSON projection
-│   ├── market_state.py   Latest quotes and market readiness
-│   ├── option_chain.py   Option-chain inspection logic
-│   ├── pricing_worker.py Non-blocking continuous pricing coordinator
-│   ├── strategy_universe.py  Pricing-universe selection
-│   └── ports.py          Interfaces required by the application
+│   ├── __main__.py        Market-process composition root
+│   ├── adapters/          YMM, simulator, and gRPC boundaries
+│   ├── market/            Quotes, monitoring, chain, and universe
+│   ├── pricing_client/    Pricing requests, worker, and remote CLI
+│   ├── hedge_client/      Hedge requests and client-side CLIs
+│   ├── execution/
+│   │   ├── alpha/         Alpha lifecycle
+│   │   ├── beta/          Beta lifecycle
+│   │   └── submission.py  Shared submission validation
+│   ├── state/             Portfolio, ledger, registry, and execution state
+│   ├── domain.py          Domain values pending Phase 2 consolidation
+│   ├── portfolio.py       Portfolio values pending Phase 2 consolidation
+│   ├── pricing_types.py   Pricing values pending Phase 2 consolidation
+│   ├── auto_trader.py     Trading composition root
+│   └── ports.py           Application interfaces
 ├── tests/
 │   ├── test_market_state.py
 │   ├── test_market_monitor.py

@@ -87,7 +87,7 @@ Start the reference Python server and replay the example from another terminal:
 .\.venv\Scripts\python.exe -m hedge_service.grpc_server `
   --delta-limit 0 --gamma-limit 0
 
-.\.venv\Scripts\python.exe -m sim_hedge.hedge_remote `
+.\.venv\Scripts\python.exe -m sim_hedge.hedge_client.remote `
   protocols\hedging\v1\examples\hedge_request.json
 ```
 

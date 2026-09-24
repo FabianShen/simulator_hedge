@@ -16,7 +16,7 @@ permission to trade. `broker_operations_performed` is always zero.
 Run the included scenario:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.execution_replay `
+.\.venv\Scripts\python.exe -m sim_hedge.state.replay `
   protocols\execution\v1\examples\lifecycle.json `
   --output outputs\execution_replay.json
 ```

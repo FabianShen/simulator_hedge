@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sim_hedge.domain import OptionContract
-from sim_hedge.market_state import MarketState
-from sim_hedge.pricing_request import PricingRequestError
+from sim_hedge.market.state import MarketState
+from sim_hedge.pricing_client.request import PricingRequestError
 
 
 def build_alpha_market_snapshot(

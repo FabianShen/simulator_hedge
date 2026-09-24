@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import OrderIntent, OrderRegistry, empty_order_registry, register_order_intent
-from sim_hedge.order_registry import registry_from_payload, registry_to_payload
+from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 
 
 def main() -> None:

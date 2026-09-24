@@ -12,7 +12,7 @@ from hedge_engine import (
     empty_order_registry,
     register_order_intent,
 )
-from sim_hedge.alpha_continuation import (
+from sim_hedge.execution.alpha.continuation import (
     assess_alpha_continuation,
     select_alpha_continuation_request,
 )

@@ -11,8 +11,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from hedge_engine import StrategyLedger
 from sim_hedge.domain import MarketQuote, OptionContract
-from sim_hedge.market_state import MarketState
-from sim_hedge.strategy_universe import StrategyUniverse
+from sim_hedge.market.state import MarketState
+from sim_hedge.market.universe import StrategyUniverse
 
 
 class PricingRequestError(RuntimeError):

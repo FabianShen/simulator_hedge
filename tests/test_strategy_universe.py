@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 
 from sim_hedge.domain import OptionContract, OptionType
-from sim_hedge.strategy_universe import select_strategy_universe
+from sim_hedge.market.universe import select_strategy_universe
 
 
 def contract(option_type: OptionType, strike: float, maturity: date) -> OptionContract:

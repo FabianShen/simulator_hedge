@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from sim_hedge.alpha_strategy import AlphaPlan, build_short_otm_alpha_plan
+from sim_hedge.execution.alpha.strategy import AlphaPlan, build_short_otm_alpha_plan
 from sim_hedge.domain import OptionContract, OptionType
 
 

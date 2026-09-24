@@ -11,24 +11,24 @@ from sim_hedge.adapters.ymm_live import YmmLiveDataSource
 from sim_hedge.adapters.ymm_reference import YmmReferenceDataSource
 from sim_hedge.adapters.grpc_hedging import GrpcHedgeClient, HedgeServiceError
 from sim_hedge.adapters.grpc_pricing import GrpcPricingClient, PricingServiceError
-from sim_hedge.alpha_market import build_alpha_market_snapshot
+from sim_hedge.market.alpha_market import build_alpha_market_snapshot
 from sim_hedge.config import load_env_file
 from sim_hedge.domain import OptionContract
-from sim_hedge.market_monitor import MarketMonitor
-from sim_hedge.market_state import MarketState
+from sim_hedge.market.monitor import MarketMonitor
+from sim_hedge.market.state import MarketState
 from sim_hedge.live_risk import write_live_risk_snapshot
-from sim_hedge.hedge_request import build_hedge_request
-from sim_hedge.option_chain import subscription, summarize
-from sim_hedge.pricing_request import (
+from sim_hedge.hedge_client.request import build_hedge_request
+from sim_hedge.market.chain import subscription, summarize
+from sim_hedge.pricing_client.request import (
     PricingRequestError,
     PricingRequestPolicy,
     build_pricing_request,
     held_valuation_contracts,
     record_pricing_request,
 )
-from sim_hedge.pricing_worker import ContinuousPricingWorker
-from sim_hedge.strategy_universe import StrategyUniverse, select_strategy_universe
-from sim_hedge.strategy_ledger import ledger_from_payload
+from sim_hedge.pricing_client.worker import ContinuousPricingWorker
+from sim_hedge.market.universe import StrategyUniverse, select_strategy_universe
+from sim_hedge.state.ledger import ledger_from_payload
 
 
 def main() -> None:

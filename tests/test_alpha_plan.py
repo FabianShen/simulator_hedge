@@ -3,7 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 import unittest
 
-from sim_hedge.alpha_plan import build_plan_from_records, project_alpha_plan
+from sim_hedge.execution.alpha.plan import build_plan_from_records, project_alpha_plan
 
 
 EXAMPLE = Path(__file__).parents[1] / "protocols/pricing/v1/examples/price_request.json"

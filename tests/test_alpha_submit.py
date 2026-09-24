@@ -2,8 +2,8 @@ from datetime import date, datetime, timedelta, timezone
 import unittest
 
 from sim_hedge.adapters.sim_trading import SimTradingUnknownOutcomeError
-from sim_hedge.alpha_orders import build_alpha_order_dry_run
-from sim_hedge.alpha_submit import submit_alpha_orders
+from sim_hedge.execution.alpha.orders import build_alpha_order_dry_run
+from sim_hedge.execution.alpha.submit import submit_alpha_orders
 from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot
 
 

@@ -54,7 +54,7 @@ Start the pricing service:
 In another terminal, send any recorded protocol request:
 
 ```powershell
-.\.venv\Scripts\python.exe -m sim_hedge.price_remote `
+.\.venv\Scripts\python.exe -m sim_hedge.pricing_client.remote `
   protocols\pricing\v1\examples\price_request.json
 ```
 

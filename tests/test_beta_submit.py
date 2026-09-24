@@ -12,8 +12,8 @@ from hedge_engine import (
     register_order_intent,
 )
 from sim_hedge.adapters.sim_trading import SimTradingUnknownOutcomeError
-from sim_hedge.beta_submit import submit_beta_orders
-from sim_hedge.order_submission import request_for_intent
+from sim_hedge.execution.beta.submit import submit_beta_orders
+from sim_hedge.execution.submission import request_for_intent
 from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
 
 

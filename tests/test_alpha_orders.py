@@ -1,6 +1,6 @@
 import unittest
 
-from sim_hedge.alpha_orders import build_alpha_order_dry_run
+from sim_hedge.execution.alpha.orders import build_alpha_order_dry_run
 
 
 def records(quantity: int = -1):

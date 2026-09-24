@@ -8,7 +8,7 @@ from time import monotonic
 from typing import Any
 
 from sim_hedge.ports import PricingClient
-from sim_hedge.pricing_request import PricingRequestError
+from sim_hedge.pricing_client.request import PricingRequestError
 from sim_hedge.pricing_types import PricingBatch
 
 

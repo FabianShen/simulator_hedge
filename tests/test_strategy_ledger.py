@@ -3,7 +3,7 @@ from decimal import Decimal
 import unittest
 
 from hedge_engine import ConfirmedFill, apply_confirmed_fills, empty_ledger
-from sim_hedge.strategy_ledger import ledger_from_payload, ledger_to_payload
+from sim_hedge.state.ledger import ledger_from_payload, ledger_to_payload
 
 
 class StrategyLedgerSerializationTests(unittest.TestCase):

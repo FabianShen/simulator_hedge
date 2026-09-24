@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Event, Lock
 
 from sim_hedge.pricing_types import PricingBatch, SabrFit
-from sim_hedge.pricing_worker import ContinuousPricingWorker
+from sim_hedge.pricing_client.worker import ContinuousPricingWorker
 
 
 NOW = datetime(2026, 9, 18, 2, 0, tzinfo=timezone.utc)

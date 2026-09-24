@@ -18,7 +18,7 @@ from sim_hedge.adapters.sim_trading import (
     normalize_portfolio_snapshot,
 )
 from sim_hedge.portfolio import PortfolioSnapshot
-from sim_hedge.portfolio_state import PortfolioState
+from sim_hedge.state.portfolio_state import PortfolioState
 
 
 Connect = Callable[..., Any]

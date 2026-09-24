@@ -6,7 +6,7 @@ from sim_hedge.portfolio import (
     PortfolioSnapshot,
     PositionSnapshot,
 )
-from sim_hedge.portfolio_state import PortfolioState
+from sim_hedge.state.portfolio_state import PortfolioState
 
 
 class PortfolioStateTests(unittest.TestCase):

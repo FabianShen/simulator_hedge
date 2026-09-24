@@ -6,8 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from sim_hedge.domain import MarketQuote
-from sim_hedge.market_monitor import MarketMonitor
-from sim_hedge.market_state import MarketState
+from sim_hedge.market.monitor import MarketMonitor
+from sim_hedge.market.state import MarketState
 
 
 NOW = datetime(2026, 9, 17, 2, 30, tzinfo=timezone.utc)

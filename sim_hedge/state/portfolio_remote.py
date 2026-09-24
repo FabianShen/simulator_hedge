@@ -13,7 +13,7 @@ from tempfile import NamedTemporaryFile
 from sim_hedge.adapters.sim_trading import SimTradingPortfolioSource
 from sim_hedge.adapters.sim_trading_ws import SimTradingSnapshotStream
 from sim_hedge.config import load_env_file
-from sim_hedge.portfolio_state import PortfolioState
+from sim_hedge.state.portfolio_state import PortfolioState
 
 
 def main() -> None:

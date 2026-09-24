@@ -11,7 +11,7 @@ from hedge_engine import (
     register_order_intent,
     supersede_order_intent,
 )
-from sim_hedge.order_registry import registry_from_payload, registry_to_payload
+from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 
 
 class OrderRegistrySerializationTests(unittest.TestCase):

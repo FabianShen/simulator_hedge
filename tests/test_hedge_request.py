@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from hedge_engine import ConfirmedFill, apply_confirmed_fills, empty_ledger
-from sim_hedge.hedge_request import build_hedge_request
+from sim_hedge.hedge_client.request import build_hedge_request
 from sim_hedge.pricing_types import OptionValuation, PricingBatch, SabrFit
 
 

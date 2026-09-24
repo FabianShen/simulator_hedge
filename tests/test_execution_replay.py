@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import unittest
 
-from sim_hedge.execution_replay import replay_execution_scenario
+from sim_hedge.state.replay import replay_execution_scenario
 
 
 class ExecutionReplayTests(unittest.TestCase):

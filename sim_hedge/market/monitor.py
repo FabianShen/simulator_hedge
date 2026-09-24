@@ -7,7 +7,7 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Any, Callable, Iterable
 
-from sim_hedge.market_state import MarketState
+from sim_hedge.market.state import MarketState
 
 
 class MarketMonitor:

@@ -13,7 +13,7 @@ from hedge_service import HedgeInstrument, HedgeRequest, ReferenceHedgeEngine
 
 from pricing_engine import OptionPricingResult, SabrPricingEngine
 from pricing_engine.__main__ import load_request
-from sim_hedge.hedge_plan import _usable_instrument_greeks, build_offline_hedge_decision, main
+from sim_hedge.hedge_client.plan import _usable_instrument_greeks, build_offline_hedge_decision, main
 
 
 AS_OF = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)

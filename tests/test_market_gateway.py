@@ -20,7 +20,7 @@ from sim_hedge import __main__ as gateway
 from sim_hedge.adapters.grpc_hedging import HedgeServiceError
 from sim_hedge.domain import MarketQuote, OptionContract, OptionType
 from sim_hedge.pricing_types import OptionValuation, PricingBatch, PricingServiceHealth, SabrFit
-from sim_hedge.strategy_ledger import ledger_to_payload
+from sim_hedge.state.ledger import ledger_to_payload
 
 
 NOW = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)

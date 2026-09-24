@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
-from sim_hedge.alpha_strategy import (
+from sim_hedge.execution.alpha.strategy import (
     AlphaPlanError,
     build_short_otm_alpha_plan,
     short_option_opening_margin,

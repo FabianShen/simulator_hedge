@@ -11,8 +11,8 @@ from pricing_engine.__main__ import load_request
 from pricing_engine.black76 import black76_price
 from pricing_engine.sabr import sabr_volatility
 from sim_hedge.domain import MarketQuote, OptionContract, OptionType
-from sim_hedge.market_state import MarketState
-from sim_hedge.pricing_request import (
+from sim_hedge.market.state import MarketState
+from sim_hedge.pricing_client.request import (
     PricingRequestError,
     PricingRequestPolicy,
     build_pricing_request,
@@ -20,7 +20,7 @@ from sim_hedge.pricing_request import (
     record_pricing_request,
 )
 from hedge_engine import ConfirmedFill, apply_confirmed_fills, empty_ledger
-from sim_hedge.strategy_universe import StrategyUniverse
+from sim_hedge.market.universe import StrategyUniverse
 
 
 NOW = datetime(2026, 9, 17, 2, 30, tzinfo=timezone.utc)

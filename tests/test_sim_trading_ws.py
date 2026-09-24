@@ -5,7 +5,7 @@ import unittest
 
 from sim_hedge.adapters.sim_trading import SimTradingPortfolioSource
 from sim_hedge.adapters.sim_trading_ws import SimTradingSnapshotStream
-from sim_hedge.portfolio_state import PortfolioState
+from sim_hedge.state.portfolio_state import PortfolioState
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sim_trading_snapshot.json"

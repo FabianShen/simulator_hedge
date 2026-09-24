@@ -12,7 +12,7 @@ from hedge_engine import (
     register_order_intent,
 )
 from sim_hedge.adapters.sim_trading import BrokerOrder, ConfirmedTradePage
-from sim_hedge.alpha_adopt import adopt_alpha_replacement
+from sim_hedge.execution.alpha.adopt import adopt_alpha_replacement
 
 
 NOW = datetime(2026, 9, 21, 1, 35, tzinfo=timezone.utc)

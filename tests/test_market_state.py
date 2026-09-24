@@ -2,7 +2,7 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 
 from sim_hedge.domain import MarketQuote
-from sim_hedge.market_state import MarketState
+from sim_hedge.market.state import MarketState
 
 
 NOW = datetime(2026, 9, 17, 2, 30, tzinfo=timezone.utc)
