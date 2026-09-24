@@ -17,6 +17,11 @@ The service is intentionally stateless. Retrying the same request does not
 advance any internal portfolio. Only the caller's broker-confirmed ledger can
 change the position base for a later request.
 
+The reference server's Delta/Gamma targets and absolute trigger widths are
+process configuration, not request fields. Both trigger widths are required at
+startup; this protocol remains account-agnostic until per-account policy is
+needed.
+
 ## Position equation
 
 Every proposal is based on one immutable, broker-confirmed strategy ledger:
@@ -28,6 +33,11 @@ target_beta_positions
 
 All quantities are signed integer contracts. Positive means long/buy and
 negative means short/sell. Zero positions are omitted.
+
+Alpha and Beta are independent books and may contain the same instrument.
+Alpha remains the frozen strategy baseline; any hedge on an Alpha instrument
+is recorded in Beta, and the reference engine limits the absolute Beta quantity
+on each such leg to 30% of that leg's Alpha quantity.
 
 The executable signal is `incremental_trades`. `target_beta_positions` is a
 derived audit value that proves which confirmed ledger the increment was based
@@ -74,7 +84,8 @@ above as the execution-neutral contract.
 Start the reference Python server and replay the example from another terminal:
 
 ```powershell
-.\.venv\Scripts\python.exe -m hedge_service.grpc_server
+.\.venv\Scripts\python.exe -m hedge_service.grpc_server `
+  --delta-limit 0 --gamma-limit 0
 
 .\.venv\Scripts\python.exe -m sim_hedge.hedge_remote `
   protocols\hedging\v1\examples\hedge_request.json

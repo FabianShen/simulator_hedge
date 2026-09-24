@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from hedge_engine import OrderRegistry, StrategyLedger
+from hedge_engine import OrderRegistry, StrategyLedger, combined_strategy_positions
 from sim_hedge.order_registry import registry_from_payload
 from sim_hedge.order_submission import request_for_intent, validate_timestamp_freshness
 from sim_hedge.strategy_ledger import ledger_from_payload
@@ -37,8 +37,6 @@ def assess_alpha_continuation(
         raise ValueError("broker position or account health is not confirmed")
     if registry.unknown_client_order_ids or reconciliation.get("unresolved_submissions"):
         raise ValueError("an order submission outcome is unknown")
-    if ledger.beta_positions:
-        raise ValueError("Alpha initialization cannot continue after Beta positions exist")
 
     legs = plan.get("legs")
     if not isinstance(legs, list) or not legs:
@@ -78,8 +76,8 @@ def assess_alpha_continuation(
     if set(ledger.alpha_positions) - set(target):
         raise ValueError("confirmed Alpha contains instruments outside the saved target")
     broker_positions = reconciliation.get("broker_positions")
-    if broker_positions != {code: value for code, value in confirmed.items() if value}:
-        raise ValueError("reconciliation broker positions differ from confirmed Alpha")
+    if broker_positions != combined_strategy_positions(ledger):
+        raise ValueError("reconciliation broker positions differ from combined strategy positions")
 
     statuses = _object(reconciliation.get("managed_order_statuses"), "managed order statuses")
     if set(statuses) != set(registry.broker_orders):

@@ -17,6 +17,8 @@ from sim_hedge.hedge_plan import _usable_instrument_greeks, build_offline_hedge_
 
 
 AS_OF = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)
+DELTA_LIMIT = 1.0
+GAMMA_LIMIT = 1.0
 SABR_EXAMPLE = Path(__file__).parents[1] / "pricing_engine" / "examples" / "sabr_request.json"
 
 
@@ -99,6 +101,7 @@ class HedgePlanReplayTests(unittest.TestCase):
             path = _write_pricing(Path(directory), pricing)
             result, context, exclusions = build_offline_hedge_decision(
                 path, pricing, _portfolio(alpha), _ledger(alpha),
+                delta_limit=DELTA_LIMIT, gamma_limit=GAMMA_LIMIT,
             )
             response = SabrPricingEngine().price(load_request(path))
         results = {item.instrument: item for item in response.results}
@@ -126,7 +129,9 @@ class HedgePlanReplayTests(unittest.TestCase):
             confirmed_beta_positions={},
             hedge_universe=context.hedge_universe,
         )
-        expected = ReferenceHedgeEngine().propose(expected_request, created_at=AS_OF)
+        expected = ReferenceHedgeEngine(
+            delta_limit=DELTA_LIMIT, gamma_limit=GAMMA_LIMIT,
+        ).propose(expected_request, created_at=AS_OF)
         self.assertEqual(exclusions, {})
         self.assertEqual(result.hedge_pair, expected.hedge_pair)
         self.assertEqual(
@@ -147,10 +152,12 @@ class HedgePlanReplayTests(unittest.TestCase):
             path = _write_pricing(Path(directory), pricing)
             first, _, _ = build_offline_hedge_decision(
                 path, pricing, _portfolio(alpha), _ledger(alpha),
+                delta_limit=DELTA_LIMIT, gamma_limit=GAMMA_LIMIT,
             )
             beta = first.proposal["target_beta_positions"]
             inside, _, _ = build_offline_hedge_decision(
                 path, pricing, _portfolio(alpha, beta), _ledger(alpha, beta),
+                delta_limit=DELTA_LIMIT, gamma_limit=GAMMA_LIMIT,
             )
         self.assertTrue(beta)
         self.assertEqual(inside.hedge_pair, ())
@@ -187,6 +194,7 @@ class HedgePlanReplayTests(unittest.TestCase):
             response = SabrPricingEngine().price(load_request(path))
             result, context, exclusions = build_offline_hedge_decision(
                 path, pricing, _portfolio(alpha, beta), _ledger(alpha, beta),
+                delta_limit=DELTA_LIMIT, gamma_limit=GAMMA_LIMIT,
             )
         priced = {item.instrument: item for item in response.results}[held_beta]
 
@@ -238,7 +246,10 @@ class HedgePlanReplayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = _write_pricing(Path(directory), pricing)
             with self.assertRaisesRegex(ValueError, "strategy ledger must contain confirmed fills"):
-                build_offline_hedge_decision(path, pricing, _portfolio(alpha), ledger)
+                build_offline_hedge_decision(
+                    path, pricing, _portfolio(alpha), ledger,
+                    delta_limit=DELTA_LIMIT, gamma_limit=GAMMA_LIMIT,
+                )
 
     def test_portfolio_account_must_match_ledger(self) -> None:
         pricing = _recorded_pricing()
@@ -269,6 +280,10 @@ class HedgePlanReplayTests(unittest.TestCase):
             with patch.object(sys, "argv", [
                 "hedge_plan", str(pricing_path), str(portfolio_path),
                 str(ledger_path), "--output", str(output_path),
+                "--delta-limit", str(DELTA_LIMIT),
+                "--gamma-limit", str(GAMMA_LIMIT),
+                "--target-delta", "5000",
+                "--target-gamma", "0",
             ]), contextlib.redirect_stdout(io.StringIO()):
                 main()
             output = json.loads(output_path.read_text(encoding="utf-8"))
@@ -282,6 +297,10 @@ class HedgePlanReplayTests(unittest.TestCase):
         self.assertEqual(output["decision_engine"]["name"], "reference-python-hedge")
         self.assertEqual(output["source_market_as_of"], "2026-09-21T03:00:00Z")
         self.assertIn("risk_at_target_beta", output)
+        self.assertLess(
+            abs(output["risk_at_target_beta"]["delta"] - 5000),
+            abs(output["risk"]["before_hedge"]["delta"] - 5000),
+        )
         self.assertIn("pricing_exclusions", output)
         self.assertFalse(output["orders_generated"])
 
@@ -293,6 +312,8 @@ def _decision(pricing, *, portfolio=None, max_market_age_seconds=10.0):
         return build_offline_hedge_decision(
             path, pricing, portfolio or _portfolio(alpha), _ledger(alpha),
             max_market_age_seconds=max_market_age_seconds,
+            delta_limit=DELTA_LIMIT,
+            gamma_limit=GAMMA_LIMIT,
         )
 
 

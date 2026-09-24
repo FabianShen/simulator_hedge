@@ -4,6 +4,7 @@ import argparse
 from collections.abc import Callable
 from concurrent import futures
 from datetime import datetime, timezone
+from math import isfinite
 from typing import Any
 
 import grpc
@@ -24,11 +25,13 @@ DEFAULT_BIND = "127.0.0.1:50052"
 class HedgeService(hedging_pb2_grpc.HedgeServiceServicer):
     def __init__(
         self,
-        engine: Any | None = None,
+        engine: Any,
         clock: Callable[[], datetime] | None = None,
         protocol_version: str = PROTOCOL_VERSION,
     ) -> None:
-        self._engine = engine or ReferenceHedgeEngine()
+        if engine is None:
+            raise ValueError("hedge engine must be configured explicitly")
+        self._engine = engine
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._protocol_version = protocol_version
 
@@ -54,7 +57,7 @@ class HedgeService(hedging_pb2_grpc.HedgeServiceServicer):
 def create_server(
     bind: str = DEFAULT_BIND,
     *,
-    engine: Any | None = None,
+    engine: Any,
     clock: Callable[[], datetime] | None = None,
     protocol_version: str = PROTOCOL_VERSION,
     max_workers: int = 4,
@@ -80,9 +83,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the local hedge gRPC service")
     parser.add_argument("--bind", default=DEFAULT_BIND)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--delta-limit", type=_non_negative_float, required=True)
+    parser.add_argument("--gamma-limit", type=_non_negative_float, required=True)
+    parser.add_argument("--target-delta", type=_finite_float, default=0.0)
+    parser.add_argument("--target-gamma", type=_finite_float, default=0.0)
     args = parser.parse_args()
 
-    server, port = create_server(args.bind, max_workers=args.workers)
+    engine = ReferenceHedgeEngine(
+        delta_limit=args.delta_limit,
+        gamma_limit=args.gamma_limit,
+        target_delta=args.target_delta,
+        target_gamma=args.target_gamma,
+    )
+    server, port = create_server(
+        args.bind, engine=engine, max_workers=args.workers
+    )
     server.start()
     print(f"hedge service listening on {args.bind} (port {port})", flush=True)
     try:
@@ -90,6 +105,20 @@ def main() -> None:
     except KeyboardInterrupt:
         print("stopping hedge service", flush=True)
         server.stop(grace=2).wait()
+
+
+def _finite_float(value: str) -> float:
+    result = float(value)
+    if not isfinite(result):
+        raise argparse.ArgumentTypeError("value must be finite")
+    return result
+
+
+def _non_negative_float(value: str) -> float:
+    result = _finite_float(value)
+    if result < 0:
+        raise argparse.ArgumentTypeError("value must not be negative")
+    return result
 
 
 if __name__ == "__main__":

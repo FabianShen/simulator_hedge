@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from hedge_engine import (
     OrderRegistry, StrategyLedger, abandon_unsubmitted_intents,
     strategy_intents_fully_filled,
+    combined_strategy_positions,
 )
 from sim_hedge.order_registry import registry_from_payload, registry_to_payload
 from sim_hedge.strategy_ledger import ledger_from_payload
@@ -32,11 +33,11 @@ def finalize_alpha(
         raise ValueError("reconciliation is stale; run broker reconciliation again")
     if registry.unknown_client_order_ids or reconciliation.get("unresolved_submissions"):
         raise ValueError("unknown submission outcome; resolve it with the broker first")
-    if ledger.beta_positions or not ledger.alpha_positions:
+    if not ledger.alpha_positions:
         raise ValueError("adoption requires confirmed Alpha and no Beta positions")
     if not reconciliation.get("position_match") or not reconciliation.get("account_healthy"):
         raise ValueError("broker positions or account health are not confirmed")
-    if reconciliation.get("broker_positions") != dict(ledger.alpha_positions):
+    if reconciliation.get("broker_positions") != combined_strategy_positions(ledger):
         raise ValueError("broker positions differ from confirmed Alpha")
     if reconciliation.get("active_order_ids"):
         raise ValueError("broker still has active orders")

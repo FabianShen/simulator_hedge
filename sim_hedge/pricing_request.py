@@ -68,9 +68,10 @@ def build_pricing_request(
     universe: StrategyUniverse,
     policy: PricingRequestPolicy,
     feed_unsafe: bool = False,
+    hedge_contracts: Iterable[OptionContract] = (),
     valuation_contracts: Iterable[OptionContract] = (),
 ) -> dict[str, Any]:
-    """Calibrate on liquid strategy quotes; also value held options without quotes."""
+    """Price quoted near-expiry candidates and value unquoted held options."""
 
     if not request_id:
         raise ValueError("request_id must not be empty")
@@ -136,6 +137,38 @@ def build_pricing_request(
         )
 
     included = set(universe.instruments)
+    # Same-expiry contracts with fresh two-sided quotes are additional hedge
+    # candidates. Missing or illiquid contracts are simply not eligible.
+    for contract in hedge_contracts:
+        if contract.instrument in included:
+            continue
+        if contract.underlying != universe.underlying or contract.maturity != universe.maturity:
+            continue
+        quote = snapshots.get(contract.instrument)
+        if quote is None or as_of - quote.received_at > policy.max_quote_age:
+            continue
+        try:
+            market_price, price_source = _reference_price(
+                quote, require_two_sided=True
+            )
+        except PricingRequestError:
+            continue
+        included.add(contract.instrument)
+        options.append(
+            {
+                "instrument": contract.instrument,
+                "optionType": f"OPTION_TYPE_{contract.option_type.value}",
+                "exerciseStyle": "EXERCISE_STYLE_EUROPEAN",
+                "strike": contract.strike,
+                "expiry": _utc_text(expiry),
+                "observedAt": _observed_at_utc(quote, market_zone),
+                "contractMultiplier": contract.contract_multiplier,
+                "priceTick": contract.price_tick,
+                "marketPrice": market_price,
+                "marketPriceSource": price_source,
+            }
+        )
+
     for contract in valuation_contracts:
         if contract.instrument in included:
             continue

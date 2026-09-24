@@ -233,6 +233,7 @@ def main() -> None:
                 market_state=market_state,
                 universe=universe,
                 policy=pricing_policy,
+                hedge_contracts=contracts,
                 valuation_contracts=held_contracts,
                 feed_unsafe=(
                     source.health.data_unsafe or source.health.state != "running"
@@ -254,7 +255,11 @@ def main() -> None:
                     risk = hedge_client.propose(
                         build_hedge_request(
                             request, result, ledger,
-                            hedge_candidates=universe.instruments if universe else (),
+                            hedge_candidates=(
+                                str(option["instrument"])
+                                for option in request["options"]
+                                if "marketPrice" in option
+                            ),
                         )
                     )
                     risk = {
@@ -339,6 +344,7 @@ def main() -> None:
                     market_state=market_state,
                     universe=universe,
                     policy=pricing_policy,
+                    hedge_contracts=contracts,
                     feed_unsafe=source.health.data_unsafe,
                 )
             except PricingRequestError as exc:

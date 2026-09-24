@@ -15,7 +15,8 @@ Normal startup loads the active option chain through Data SDK, closes that SDK,
 then subscribes through Live SDK to the underlying and every active option.
 The first underlying quote selects one maturity and nearby complete call/put
 pairs as the strategy universe. Only those instruments must be fresh before
-pricing is allowed to run.
+pricing is allowed to run; other fresh, two-sided contracts from that maturity
+are then added opportunistically as hedge candidates.
 During the run, a monitor reports coverage/readiness once per second and writes
 `outputs/market_state.json` atomically for diagnostics. Pricing will consume the
 in-memory `MarketState`, not this JSON file.
@@ -70,7 +71,9 @@ versioned incremental Beta proposal after every accepted pricing result:
 .\.venv\Scripts\python.exe -m pricing_engine.grpc_server
 
 # Terminal 2
-.\.venv\Scripts\python.exe -m hedge_service.grpc_server
+.\.venv\Scripts\python.exe -m hedge_service.grpc_server `
+  --target-delta 5000 --target-gamma 0 `
+  --delta-limit 2000 --gamma-limit 5000
 
 # Terminal 3
 .\.venv\Scripts\python.exe -m sim_hedge `
@@ -80,11 +83,17 @@ versioned incremental Beta proposal after every accepted pricing result:
   --risk-output outputs\live_risk.json
 ```
 
+The hedge service requires absolute Delta and Gamma limits. They are measured
+in the same multiplier-scaled units as `risk.portfolio`; a hedge is triggered
+when either risk moves outside its target-centered band. Targets default to
+zero, but both limits must always be supplied explicitly.
+
 The ledger is reloaded after every pricing response, so a separately reconciled
 fill becomes part of the next risk calculation without restarting the live
-feed. The pricing request also reloads the ledger: near-ATM two-sided quotes
-calibrate SABR, while held contracts outside that set are valuation-only (no
-market price required). Only the near-ATM contracts are Beta candidates.
+feed. The pricing request also reloads the ledger: every fresh, two-sided
+contract in the selected near expiry is priced and can become a Beta hedge
+candidate. Held contracts without a usable quote are valuation-only (no market
+price required), receive Greeks, and cannot become new hedge candidates.
 Currently all held options must share that pricing expiry; another expiry
 blocks risk until multi-expiry pricing is implemented. Restart an already
 running pricing service to pick up the valuation-only behavior.
@@ -460,19 +469,23 @@ a broker portfolio plus a fill-confirmed Alpha/Beta strategy ledger:
   outputs\live-pricing-request.json `
   outputs\portfolio_state.json `
   outputs\strategy_ledger.json `
+  --target-delta 5000 --target-gamma 0 `
+  --delta-limit 2000 --gamma-limit 5000 `
   --output outputs\hedge_plan.json
 ```
 
 The offline command replays the recorded request through the pricing engine,
 validates the broker portfolio and market observations, then calls the same
 `ReferenceHedgeEngine` used by the live hedge service. That engine checks its
-risk bands before choosing a non-Alpha call/put pair, solving Delta/Gamma risk,
-and integerizing any required trade. An inside-band portfolio produces a
+risk bands before solving a bounded, minimum-norm Delta/Gamma hedge over all
+eligible near-expiry legs and integerizing the result. Alpha instruments may
+carry Beta hedges, but each resulting Beta leg is limited to 30% of its frozen
+Alpha quantity. An inside-band portfolio produces a
 no-trade proposal. `outputs/strategy_ledger.json` keeps fill-confirmed Alpha
 and Beta positions separate. Hedge planning accepts only a `CONFIRMED` ledger,
 requires `broker positions == Alpha actual positions + Beta actual positions`, and
-rejects active broker orders. Alpha instruments contribute risk but are removed
-from the nearest-DTE Beta universe. A pricing failure on a held Alpha/Beta
+rejects active broker orders. Alpha instruments contribute risk and may remain
+in the nearest-DTE Beta universe subject to that per-leg limit. A pricing failure on a held Alpha/Beta
 contract stops planning; a failure on an unheld contract removes only that
 candidate and is recorded under `pricing_exclusions`. The hedge-plan file
 creates no broker orders.
@@ -496,14 +509,15 @@ trading SDKs:
 
 ```powershell
 # Terminal 1
-.\.venv\Scripts\python.exe -m hedge_service.grpc_server
+.\.venv\Scripts\python.exe -m hedge_service.grpc_server `
+  --delta-limit 0 --gamma-limit 0
 
 # Terminal 2: recorded request; no live data or broker connection
 .\.venv\Scripts\python.exe -m sim_hedge.hedge_remote `
   protocols\hedging\v1\examples\hedge_request.json
 ```
 
-The reference server runs the current simple pair solver. A future Python or
+The reference server runs the bounded multi-leg Delta/Gamma solver. A future Python or
 C++ optimizer can implement `protocols/hedging/v1/hedging.proto` without
 changing the market gateway or execution application.
 

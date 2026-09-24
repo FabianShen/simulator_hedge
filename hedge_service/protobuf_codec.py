@@ -21,7 +21,7 @@ PROTOCOL_VERSION = "hedging.v1"
 
 def request_from_proto(request: hedging_pb2.HedgeRequest) -> HedgeRequest:
     if request.configuration.model != hedging_pb2.HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR:
-        raise ValueError("only the simple Delta/Gamma pair model is supported")
+        raise ValueError("only the Delta/Gamma hedge model is supported")
     if not request.HasField("market_as_of"):
         raise ValueError("market_as_of is required")
     return HedgeRequest(

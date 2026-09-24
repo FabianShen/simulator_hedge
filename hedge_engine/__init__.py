@@ -1,6 +1,7 @@
 """Pure, transport-independent hedge calculations."""
 
 from hedge_engine.accounting import (
+    ALPHA_HEDGE_RATIO,
     ConfirmedFill,
     StrategyLedger,
     apply_confirmed_fills,
@@ -38,6 +39,7 @@ from hedge_engine.proposal import (
 )
 
 __all__ = [
+    "ALPHA_HEDGE_RATIO",
     "ConfirmedFill",
     "Greeks",
     "HedgeContext",

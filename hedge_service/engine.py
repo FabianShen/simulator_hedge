@@ -8,6 +8,7 @@ from math import isfinite
 from typing import Mapping
 
 from hedge_engine import (
+    ALPHA_HEDGE_RATIO,
     Greeks,
     InstrumentGreeks,
     build_hedge_proposal,
@@ -18,7 +19,7 @@ from hedge_engine import (
 
 
 ENGINE_NAME = "reference-python-hedge"
-ENGINE_VERSION = "0.1.0"
+ENGINE_VERSION = "0.3.0"
 
 
 @dataclass(frozen=True)
@@ -79,8 +80,6 @@ class HedgeRequest:
         codes = [item.instrument for item in self.instruments]
         if len(codes) != len(set(codes)):
             raise ValueError("instrument inputs must be unique")
-        if set(self.confirmed_alpha_positions) & set(self.confirmed_beta_positions):
-            raise ValueError("Alpha and Beta positions must not overlap")
 
 
 @dataclass(frozen=True)
@@ -96,22 +95,43 @@ class HedgeResult:
 
 
 class ReferenceHedgeEngine:
-    """Risk-band monitored two-instrument Delta/Gamma hedge policy."""
+    """Risk-band monitored, bounded multi-instrument Delta/Gamma policy."""
 
     name = ENGINE_NAME
     version = ENGINE_VERSION
 
     def __init__(
         self,
-        delta_tolerance_ratio: float = 0.15,
-        gamma_tolerance_ratio: float = 0.30,
-        delta_limit: float | None = None,
-        gamma_limit: float | None = None,
+        *,
+        delta_limit: float,
+        gamma_limit: float,
+        target_delta: float = 0.0,
+        target_gamma: float = 0.0,
+        alpha_hedge_ratio: float = ALPHA_HEDGE_RATIO,
+        alpha_modification_penalty: float = 2.0,
     ):
-        self.delta_tolerance_ratio = delta_tolerance_ratio
-        self.gamma_tolerance_ratio = gamma_tolerance_ratio
+        if not isfinite(delta_limit) or delta_limit < 0:
+            raise ValueError("delta_limit must be finite and non-negative")
+        if not isfinite(gamma_limit) or gamma_limit < 0:
+            raise ValueError("gamma_limit must be finite and non-negative")
+        if not isfinite(target_delta) or not isfinite(target_gamma):
+            raise ValueError("Delta/Gamma targets must be finite")
+        if (
+            not isfinite(alpha_hedge_ratio)
+            or not 0 <= alpha_hedge_ratio <= ALPHA_HEDGE_RATIO
+        ):
+            raise ValueError("alpha_hedge_ratio must be between zero and 30%")
+        if (
+            not isfinite(alpha_modification_penalty)
+            or alpha_modification_penalty < 0
+        ):
+            raise ValueError("alpha_modification_penalty must not be negative")
         self.delta_limit = delta_limit
         self.gamma_limit = gamma_limit
+        self.target_delta = target_delta
+        self.target_gamma = target_gamma
+        self.alpha_hedge_ratio = alpha_hedge_ratio
+        self.alpha_modification_penalty = alpha_modification_penalty
 
     def propose(self, request: HedgeRequest, *, created_at: datetime) -> HedgeResult:
         if created_at.tzinfo is None:
@@ -132,6 +152,18 @@ class ReferenceHedgeEngine:
                 "hedge universe is missing instrument Greeks: "
                 + ", ".join(sorted(unknown_candidates))
             )
+        for code in (
+            set(request.confirmed_alpha_positions)
+            & set(request.confirmed_beta_positions)
+        ):
+            limit = self.alpha_hedge_ratio * abs(
+                request.confirmed_alpha_positions[code]
+            )
+            if abs(request.confirmed_beta_positions[code]) > limit:
+                raise ValueError(
+                    f"Beta position for Alpha instrument {code} exceeds "
+                    f"{self.alpha_hedge_ratio:.0%} of frozen Alpha"
+                )
 
         greeks = {
             code: InstrumentGreeks(
@@ -150,26 +182,12 @@ class ReferenceHedgeEngine:
         beta_risk = aggregate_greeks(request.confirmed_beta_positions, greeks)
         portfolio_risk = alpha_risk.plus(beta_risk)
 
-        alpha_delta_scale = sum(
-            abs(quantity * greeks[instrument].greeks_per_contract.delta)
-            for instrument, quantity
-            in request.confirmed_alpha_positions.items()
+        delta_breached = (
+            abs(portfolio_risk.delta - self.target_delta) > self.delta_limit
         )
-        alpha_gamma_scale = abs(alpha_risk.gamma)
-
-        delta_limit = (
-            self.delta_limit
-            if self.delta_limit is not None
-            else self.delta_tolerance_ratio * alpha_delta_scale
+        gamma_breached = (
+            abs(portfolio_risk.gamma - self.target_gamma) > self.gamma_limit
         )
-        gamma_limit = (
-            self.gamma_limit
-            if self.gamma_limit is not None
-            else self.gamma_tolerance_ratio * alpha_gamma_scale
-        )
-
-        delta_breached = abs(portfolio_risk.delta) > delta_limit
-        gamma_breached = abs(portfolio_risk.gamma) > gamma_limit
 
         if not delta_breached and not gamma_breached:
             # Risk is within the hedge bands.
@@ -195,23 +213,30 @@ class ReferenceHedgeEngine:
                 normalized_residual=0.0,
             )
 
-        pair = _select_pair(
-            metadata,
-            allowed=set(request.hedge_universe)
-            - set(request.confirmed_alpha_positions),
-            spot=request.spot,
-            greeks=greeks,
-        )
         decision = evaluate_delta_gamma_hedge(
             alpha_positions=request.confirmed_alpha_positions,
             hedge_positions=request.confirmed_beta_positions,
             instrument_greeks=greeks,
-            hedge_pair=pair,
+            hedge_universe=request.hedge_universe,
+            alpha_hedge_ratio=self.alpha_hedge_ratio,
+            alpha_modification_penalty=self.alpha_modification_penalty,
+            target_delta=self.target_delta,
+            target_gamma=self.target_gamma,
         )
         tradable = integerize_delta_gamma_hedge(
             decision,
             instrument_greeks=greeks,
-            hedge_pair=pair,
+            hedge_universe=request.hedge_universe,
+            alpha_positions=request.confirmed_alpha_positions,
+            hedge_positions=request.confirmed_beta_positions,
+            alpha_hedge_ratio=self.alpha_hedge_ratio,
+            target_delta=self.target_delta,
+            target_gamma=self.target_gamma,
+        )
+        active_instruments = tuple(
+            code
+            for code in request.hedge_universe
+            if tradable.integer_incremental_trades[code]
         )
         proposal = build_hedge_proposal(
             pricing_request_id=request.source_pricing_request_id,
@@ -226,46 +251,10 @@ class ReferenceHedgeEngine:
         return HedgeResult(
             proposal=proposal,
             market_as_of=request.market_as_of,
-            hedge_pair=pair,
+            hedge_pair=active_instruments,
             alpha_risk=decision.alpha_risk,
             confirmed_beta_risk=decision.current_hedge_risk,
             portfolio_risk=decision.before_hedge,
             risk_at_target_beta=tradable.after_integer_hedge,
             normalized_residual=tradable.normalized_residual,
         )
-
-
-def _select_pair(
-    metadata: Mapping[str, HedgeInstrument],
-    *,
-    allowed: set[str],
-    spot: float,
-    greeks: Mapping[str, InstrumentGreeks],
-) -> tuple[str, str]:
-    calls = sorted(
-        (
-            item
-            for code, item in metadata.items()
-            if code in allowed and item.option_type == "CALL"
-        ),
-        key=lambda item: abs(item.strike - spot),
-    )
-    puts = sorted(
-        (
-            item
-            for code, item in metadata.items()
-            if code in allowed and item.option_type == "PUT"
-        ),
-        key=lambda item: abs(item.strike - spot),
-    )
-    pairs = sorted(
-        ((call, put) for call in calls for put in puts),
-        key=lambda pair: abs(pair[0].strike - spot) + abs(pair[1].strike - spot),
-    )
-    for call, put in pairs:
-        first = greeks[call.instrument].greeks_per_contract
-        second = greeks[put.instrument].greeks_per_contract
-        determinant = first.delta * second.gamma - second.delta * first.gamma
-        if abs(determinant) >= 1e-12:
-            return call.instrument, put.instrument
-    raise ValueError("no non-singular call/put pair is available for hedging")

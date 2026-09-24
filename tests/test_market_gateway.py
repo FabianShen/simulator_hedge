@@ -88,7 +88,11 @@ class MarketGatewayHedgeBoundaryTests(unittest.TestCase):
         self.assertIn("underlying: ETF", output.getvalue())
 
     def test_successful_service_proposal_is_published_without_recalculation(self) -> None:
-        server, port = create_server("127.0.0.1:0", clock=lambda: NOW)
+        server, port = create_server(
+            "127.0.0.1:0",
+            engine=ReferenceHedgeEngine(delta_limit=0.0, gamma_limit=0.0),
+            clock=lambda: NOW,
+        )
         server.start()
         try:
             risk, source = self._run_gateway(ledger=True, hedge_target=f"127.0.0.1:{port}")
@@ -185,8 +189,11 @@ def _ledger():
 
 def _request() -> dict:
     def option(instrument, option_type, strike):
-        return {"instrument": instrument, "optionType": option_type, "strike": strike,
-                "contractMultiplier": 1}
+        result = {"instrument": instrument, "optionType": option_type, "strike": strike,
+                  "contractMultiplier": 1}
+        if instrument != "ALPHA":
+            result["marketPrice"] = 0.1
+        return result
     return {
         "requestId": "pricing-1", "asOf": NOW.isoformat(),
         "underlying": {"instrument": "ETF", "spot": 3.3},

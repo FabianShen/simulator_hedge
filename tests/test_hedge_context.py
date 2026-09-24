@@ -26,7 +26,7 @@ class HedgeContextTests(unittest.TestCase):
             observed_at={code: NOW for code in ("ALPHA", "CALL", "PUT")},
         )
 
-    def test_reconciles_books_and_excludes_alpha_from_hedge_universe(self) -> None:
+    def test_reconciles_books_and_includes_alpha_in_hedge_universe(self) -> None:
         context = build_hedge_context(
             market=self.market,
             alpha_positions={"ALPHA": -2},
@@ -36,8 +36,8 @@ class HedgeContextTests(unittest.TestCase):
             instrument_greeks=self.greeks,
         )
 
-        self.assertEqual(context.hedge_universe, ("CALL", "PUT"))
-        self.assertNotIn("ALPHA", context.hedge_universe)
+        self.assertEqual(context.hedge_universe, ("ALPHA", "CALL", "PUT"))
+        self.assertIn("ALPHA", context.hedge_universe)
         self.assertIn("ALPHA", context.instrument_greeks)
 
     def test_rejects_unreconciled_broker_positions(self) -> None:
@@ -51,16 +51,18 @@ class HedgeContextTests(unittest.TestCase):
                 instrument_greeks=self.greeks,
             )
 
-    def test_rejects_alpha_beta_instrument_overlap(self) -> None:
-        with self.assertRaisesRegex(ValueError, "disjoint"):
-            build_hedge_context(
-                market=self.market,
-                alpha_positions={"ALPHA": -2},
-                beta_positions={"ALPHA": 1},
-                broker_positions={"ALPHA": -1},
-                strategy_universe=("ALPHA", "CALL", "PUT"),
-                instrument_greeks=self.greeks,
-            )
+    def test_accepts_alpha_beta_overlap_and_reconciles_the_net_position(self) -> None:
+        context = build_hedge_context(
+            market=self.market,
+            alpha_positions={"ALPHA": -10},
+            beta_positions={"ALPHA": 2},
+            broker_positions={"ALPHA": -8},
+            strategy_universe=("ALPHA", "CALL", "PUT"),
+            instrument_greeks=self.greeks,
+        )
+
+        self.assertEqual(context.alpha_positions["ALPHA"], -10)
+        self.assertEqual(context.beta_positions["ALPHA"], 2)
 
     def test_rejects_stale_candidate_market_data(self) -> None:
         stale_market = MarketSnapshot(

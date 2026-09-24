@@ -1,7 +1,7 @@
 {
   "requestId": "hedge-request-20260921T030000Z-1",
   "protocolVersion": "sim-hedge/hedge-proposal/v1",
-  "proposalId": "hedge-566737e5648eff22d58e",
+  "proposalId": "hedge-f9db8a0374757f94eaca",
   "proposalType": "INCREMENTAL_BETA",
   "createdAt": "2026-09-21T03:00:00Z",
   "sourcePricingRequestId": "pricing-20260921T030000Z-7",
@@ -9,7 +9,7 @@
   "accountId": "ETO_EXAMPLE",
   "baseStrategyLedgerRevision": "6",
   "engineName": "reference-python-hedge",
-  "engineVersion": "0.1.0",
+  "engineVersion": "0.3.0",
   "confirmedBetaPositions": {},
   "incrementalTrades": {
     "CALL": "3",

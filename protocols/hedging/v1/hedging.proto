@@ -83,6 +83,7 @@ message HedgeProposal {
   map<string, sint64> incremental_trades = 12;
   map<string, sint64> target_beta_positions = 13;
   bool orders_generated = 14;
+  // Legacy field name: contains every non-zero incremental hedge leg.
   repeated string hedge_pair = 15;
   Greeks alpha_risk = 16;
   Greeks confirmed_beta_risk = 17;

@@ -20,11 +20,15 @@ REQUEST_PATH = (
 CREATED_AT = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)
 
 
+def configured_engine() -> ReferenceHedgeEngine:
+    return ReferenceHedgeEngine(delta_limit=0.0, gamma_limit=0.0)
+
+
 class GrpcHedgingIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.server, port = create_server(
-            "127.0.0.1:0", clock=lambda: CREATED_AT
+            "127.0.0.1:0", engine=configured_engine(), clock=lambda: CREATED_AT
         )
         cls.server.start()
         cls.target = f"127.0.0.1:{port}"
@@ -69,7 +73,8 @@ class GrpcHedgingIntegrationTests(unittest.TestCase):
 
     def test_health_rejects_protocol_mismatch(self) -> None:
         server, port = create_server(
-            "127.0.0.1:0", protocol_version="hedging.v999"
+            "127.0.0.1:0", engine=configured_engine(),
+            protocol_version="hedging.v999"
         )
         server.start()
         try:
@@ -80,7 +85,9 @@ class GrpcHedgingIntegrationTests(unittest.TestCase):
             server.stop(grace=None).wait()
 
     def test_stopped_service_fails_safely(self) -> None:
-        server, port = create_server("127.0.0.1:0")
+        server, port = create_server(
+            "127.0.0.1:0", engine=configured_engine()
+        )
         server.start()
         server.stop(grace=None).wait()
 

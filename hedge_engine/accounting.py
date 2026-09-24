@@ -9,6 +9,7 @@ from typing import Mapping, Sequence
 
 
 STRATEGIES = {"ALPHA", "BETA"}
+ALPHA_HEDGE_RATIO = 0.30
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,13 @@ class StrategyLedger:
             raise ValueError("ledger account_id must not be empty")
         if self.revision < 0:
             raise ValueError("ledger revision must not be negative")
-        overlap = set(self.alpha_positions) & set(self.beta_positions)
-        if overlap:
-            raise ValueError("Alpha and Beta ledger instruments must be disjoint")
+        for instrument in set(self.alpha_positions) & set(self.beta_positions):
+            limit = ALPHA_HEDGE_RATIO * abs(self.alpha_positions[instrument])
+            if abs(self.beta_positions[instrument]) > limit:
+                raise ValueError(
+                    f"Beta position for Alpha instrument {instrument} exceeds "
+                    f"{ALPHA_HEDGE_RATIO:.0%} of frozen Alpha"
+                )
         for trade_id, fill in self.applied_trades.items():
             if trade_id != fill.trade_id or fill.account_id != self.account_id:
                 raise ValueError("applied trade does not belong to this ledger")
@@ -76,7 +81,7 @@ def empty_ledger(account_id: str) -> StrategyLedger:
 
 
 def combined_strategy_positions(ledger: StrategyLedger) -> dict[str, int]:
-    """Combine the disjoint Alpha and Beta books into broker-facing positions."""
+    """Net the independent Alpha and Beta books into broker-facing positions."""
 
     result = dict(ledger.alpha_positions)
     for instrument, quantity in ledger.beta_positions.items():
@@ -87,7 +92,7 @@ def combined_strategy_positions(ledger: StrategyLedger) -> dict[str, int]:
 def apply_confirmed_fills(
     ledger: StrategyLedger, fills: Sequence[ConfirmedFill]
 ) -> StrategyLedger:
-    """Apply each trade once and preserve disjoint Alpha/Beta ownership."""
+    """Apply each trade once while retaining its Alpha/Beta ownership."""
 
     alpha = dict(ledger.alpha_positions)
     beta = dict(ledger.beta_positions)
@@ -101,11 +106,7 @@ def apply_confirmed_fills(
             if previous != fill:
                 raise ValueError(f"trade_id {fill.trade_id} has conflicting contents")
             continue
-        own, other = (alpha, beta) if fill.strategy == "ALPHA" else (beta, alpha)
-        if fill.instrument in other:
-            raise ValueError(
-                f"{fill.instrument} is already owned by the other strategy book"
-            )
+        own = alpha if fill.strategy == "ALPHA" else beta
         quantity = own.get(fill.instrument, 0) + fill.quantity
         if quantity:
             own[fill.instrument] = quantity

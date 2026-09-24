@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import (
+    ALPHA_HEDGE_RATIO,
     OrderIntent,
     OrderRegistry,
     StrategyLedger,
@@ -103,15 +104,24 @@ def build_beta_order_dry_run(
     if not strategy_intents_fully_filled(registry, ledger, "ALPHA"):
         raise ValueError("Alpha intents are not fully confirmed by broker trades")
 
-    alpha_instruments = set(ledger.alpha_positions)
     created_at = _datetime(str(hedge.get("created_at") or ""))
     legs: list[tuple[str, int, str]] = []
     for instrument, raw_quantity in incremental.items():
         code = str(instrument)
         quantity = _integer(raw_quantity, f"Beta trade {code}")
-        if code in alpha_instruments:
-            raise ValueError(f"Beta trade {code} is owned by Alpha")
-        legs.extend(_split_trade(ledger.beta_positions.get(code, 0), quantity, code))
+        if code in ledger.alpha_positions:
+            target_beta = ledger.beta_positions.get(code, 0) + quantity
+            limit = ALPHA_HEDGE_RATIO * abs(ledger.alpha_positions[code])
+            if abs(target_beta) > limit:
+                raise ValueError(
+                    f"Beta target for Alpha instrument {code} exceeds "
+                    f"{ALPHA_HEDGE_RATIO:.0%} of frozen Alpha"
+                )
+        broker_position = (
+            ledger.alpha_positions.get(code, 0)
+            + ledger.beta_positions.get(code, 0)
+        )
+        legs.extend(_split_trade(broker_position, quantity, code))
 
     total_contracts = sum(abs(quantity) for _, quantity, _ in legs)
     if total_contracts > max_total_contracts:

@@ -2,7 +2,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import unittest
 
-from hedge_engine import ConfirmedFill, apply_confirmed_fills, empty_ledger
+from hedge_engine import (
+    ConfirmedFill,
+    apply_confirmed_fills,
+    combined_strategy_positions,
+    empty_ledger,
+)
 
 
 def fill(
@@ -50,13 +55,26 @@ class StrategyAccountingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conflicting"):
             apply_confirmed_fills(ledger, (fill("T1", quantity=-2),))
 
-    def test_rejects_cross_book_instrument_ownership(self) -> None:
-        ledger = apply_confirmed_fills(empty_ledger("A1"), (fill("T1"),))
+    def test_allows_beta_on_alpha_instrument_within_thirty_percent(self) -> None:
+        ledger = apply_confirmed_fills(
+            empty_ledger("A1"), (fill("T1", quantity=-10),)
+        )
+        hedged = apply_confirmed_fills(
+            ledger, (fill("T2", strategy="BETA", quantity=3),)
+        )
 
-        with self.assertRaisesRegex(ValueError, "other strategy"):
+        self.assertEqual(hedged.alpha_positions, {"OPTION": -10})
+        self.assertEqual(hedged.beta_positions, {"OPTION": 3})
+        self.assertEqual(combined_strategy_positions(hedged), {"OPTION": -7})
+
+    def test_rejects_beta_on_alpha_instrument_above_thirty_percent(self) -> None:
+        ledger = apply_confirmed_fills(
+            empty_ledger("A1"), (fill("T1", quantity=-10),)
+        )
+
+        with self.assertRaisesRegex(ValueError, "exceeds 30%"):
             apply_confirmed_fills(
-                ledger,
-                (fill("T2", strategy="BETA", quantity=1),),
+                ledger, (fill("T2", strategy="BETA", quantity=4),)
             )
 
     def test_a_closing_fill_removes_the_position(self) -> None:

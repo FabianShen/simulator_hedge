@@ -21,6 +21,14 @@ REQUEST_PATH = (
 RESPONSE_PATH = REQUEST_PATH.with_name("hedge_response.json")
 NOW = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)
 
+
+def make_engine(**overrides) -> ReferenceHedgeEngine:
+    return ReferenceHedgeEngine(
+        delta_limit=overrides.pop("delta_limit", 0.0),
+        gamma_limit=overrides.pop("gamma_limit", 0.0),
+        **overrides,
+    )
+
 def make_request(
     *,
     alpha_positions=None,
@@ -80,6 +88,14 @@ def make_request(
     )
 
 class ReferenceHedgeServiceTests(unittest.TestCase):
+    def test_absolute_limits_are_required(self) -> None:
+        with self.assertRaises(TypeError):
+            ReferenceHedgeEngine()  # type: ignore[call-arg]
+
+    def test_negative_absolute_limit_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "delta_limit"):
+            ReferenceHedgeEngine(delta_limit=-1, gamma_limit=1)
+
     def test_protocol_examples_have_matching_identifiers(self) -> None:
         request = hedging_pb2.HedgeRequest()
         response = hedging_pb2.HedgeProposal()
@@ -101,7 +117,7 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         message = hedging_pb2.HedgeRequest()
         json_format.Parse(REQUEST_PATH.read_text(encoding="utf-8"), message)
 
-        result = ReferenceHedgeEngine().propose(
+        result = make_engine().propose(
             request_from_proto(message), created_at=NOW
         )
 
@@ -123,26 +139,15 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         json_format.ParseDict(payload, message)
 
         with self.assertRaisesRegex(ValueError, "held positions.*ALPHA"):
-            ReferenceHedgeEngine().propose(
+            make_engine().propose(
                 request_from_proto(message), created_at=NOW
             )
-    def test_default_relative_limits_trigger_delta_gamma_hedge(self) -> None:
-        engine = ReferenceHedgeEngine()
+    def test_zero_absolute_limits_trigger_delta_gamma_hedge(self) -> None:
+        engine = make_engine()
         request = make_request()
 
         result = engine.propose(request, created_at=NOW)
 
-        # Alpha position = -1
-        #
-        # Alpha Delta = -2
-        # gross Alpha Delta scale = 2
-        # default Delta limit = 15% * 2 = 0.3
-        #
-        # Alpha Gamma = -4
-        # Alpha Gamma scale = 4
-        # default Gamma limit = 30% * 4 = 1.2
-        #
-        # Both risks breach the default bands.
         self.assertEqual(
             result.proposal["incremental_trades"],
             {"CALL": 3, "PUT": 1},
@@ -150,7 +155,7 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         self.assertEqual(result.hedge_pair, ("CALL", "PUT"))
 
 
-    def test_manual_limits_override_relative_limits(self) -> None:
+    def test_portfolio_inside_absolute_limits_needs_no_trade(self) -> None:
         engine = ReferenceHedgeEngine(
             delta_limit=10.0,
             gamma_limit=10.0,
@@ -168,9 +173,10 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         self.assertEqual(result.risk_at_target_beta, result.portfolio_risk)
 
 
-    def test_manual_delta_limit_keeps_relative_gamma_limit(self) -> None:
+    def test_gamma_outside_its_absolute_limit_triggers_hedge(self) -> None:
         engine = ReferenceHedgeEngine(
             delta_limit=10.0,
+            gamma_limit=1.0,
         )
         request = make_request()
 
@@ -179,19 +185,16 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         # Delta is safe under manual limit:
         # |-2| < 10
         #
-        # Gamma still uses the default relative limit:
-        # limit = 30% * 4 = 1.2
-        # |-4| > 1.2
-        #
-        # Therefore the same D/G hedge should run.
+        # Gamma is outside its explicit absolute limit.
         self.assertEqual(
             result.proposal["incremental_trades"],
             {"CALL": 3, "PUT": 1},
         )
 
 
-    def test_manual_gamma_limit_keeps_relative_delta_limit(self) -> None:
+    def test_delta_outside_its_absolute_limit_triggers_hedge(self) -> None:
         engine = ReferenceHedgeEngine(
+            delta_limit=1.0,
             gamma_limit=10.0,
         )
         request = make_request()
@@ -201,10 +204,7 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         # Gamma is safe under manual limit:
         # |-4| < 10
         #
-        # Delta still uses:
-        # 15% * gross Alpha Delta = 0.3
-        #
-        # |-2| > 0.3
+        # Delta is outside its explicit absolute limit.
         self.assertEqual(
             result.proposal["incremental_trades"],
             {"CALL": 3, "PUT": 1},
@@ -241,7 +241,7 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
 
 
     def test_empty_alpha_and_beta_require_no_hedge(self) -> None:
-        engine = ReferenceHedgeEngine()
+        engine = make_engine()
         request = make_request(
             alpha_positions={},
             beta_positions={},
@@ -255,8 +255,8 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         self.assertEqual(result.hedge_pair, ())
 
 
-    def test_existing_beta_can_put_portfolio_inside_relative_bands(self) -> None:
-        engine = ReferenceHedgeEngine()
+    def test_existing_beta_can_put_portfolio_on_target(self) -> None:
+        engine = make_engine()
 
         request = make_request(
             beta_positions={
@@ -285,7 +285,7 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
 
 
     def test_safe_portfolio_does_not_require_valid_hedge_pair(self) -> None:
-        engine = ReferenceHedgeEngine()
+        engine = make_engine()
 
         request = make_request(
             alpha_positions={},
@@ -304,7 +304,7 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
 
 
     def test_breached_portfolio_requires_valid_hedge_pair(self) -> None:
-        engine = ReferenceHedgeEngine()
+        engine = make_engine()
 
         request = make_request(
             hedge_universe=("CALL",),
@@ -314,9 +314,60 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         # But only a CALL is available, so no valid D/G pair exists.
         with self.assertRaisesRegex(
             ValueError,
-            "no non-singular call/put pair",
+            "singular Delta/Gamma matrix",
         ):
             engine.propose(request, created_at=NOW)
+
+    def test_alpha_instrument_can_be_a_bounded_beta_hedge_leg(self) -> None:
+        request = make_request(
+            alpha_positions={"ALPHA": -10},
+            hedge_universe=("ALPHA", "CALL", "PUT"),
+        )
+
+        result = make_engine().propose(request, created_at=NOW)
+
+        target = result.proposal["target_beta_positions"]
+        self.assertIn("ALPHA", target)
+        self.assertLessEqual(abs(target["ALPHA"]), 3)
+        self.assertGreater(len(result.proposal["incremental_trades"]), 2)
+
+    def test_rejects_existing_alpha_beta_overlap_above_limit(self) -> None:
+        request = make_request(
+            alpha_positions={"ALPHA": -10},
+            beta_positions={"ALPHA": 4},
+            hedge_universe=("ALPHA", "CALL", "PUT"),
+        )
+
+        with self.assertRaisesRegex(ValueError, "exceeds 30%"):
+            make_engine().propose(request, created_at=NOW)
+
+    def test_hedges_to_nonzero_delta_gamma_targets(self) -> None:
+        request = make_request(alpha_positions={"ALPHA": -1000})
+        engine = ReferenceHedgeEngine(
+            delta_limit=2000,
+            gamma_limit=100,
+            target_delta=5000,
+            target_gamma=0,
+        )
+
+        result = engine.propose(request, created_at=NOW)
+
+        self.assertAlmostEqual(result.risk_at_target_beta.delta, 5000)
+        self.assertAlmostEqual(result.risk_at_target_beta.gamma, 0)
+
+    def test_deviation_inside_target_centered_band_needs_no_trade(self) -> None:
+        request = make_request()
+        engine = ReferenceHedgeEngine(
+            delta_limit=2,
+            gamma_limit=2,
+            target_delta=-1,
+            target_gamma=-3,
+        )
+
+        result = engine.propose(request, created_at=NOW)
+
+        self.assertEqual(result.proposal["incremental_trades"], {})
+        self.assertEqual(result.risk_at_target_beta, result.portfolio_risk)
 
 
 

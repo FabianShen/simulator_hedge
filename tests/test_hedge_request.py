@@ -40,7 +40,15 @@ class HedgeRequestBuilderTests(unittest.TestCase):
         self.assertEqual(request["baseStrategyLedgerRevision"], 1)
         self.assertEqual(request["confirmedAlphaPositions"], {"ALPHA": -1})
         self.assertEqual(request["confirmedBetaPositions"], {})
-        self.assertEqual(request["hedgeUniverse"], ["CALL", "PUT"])
+        self.assertEqual(request["hedgeUniverse"], ["ALPHA", "CALL", "PUT"])
+
+    def test_explicit_candidates_may_include_an_alpha_instrument(self) -> None:
+        request = build_hedge_request(
+            _pricing_request(), _pricing_result(), _ledger(),
+            hedge_candidates=("ALPHA", "CALL", "PUT"),
+        )
+
+        self.assertEqual(request["hedgeUniverse"], ["ALPHA", "CALL", "PUT"])
         self.assertEqual(
             {item["instrument"] for item in request["instruments"]},
             {"ALPHA", "CALL", "PUT"},

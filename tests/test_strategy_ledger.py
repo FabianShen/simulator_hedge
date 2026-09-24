@@ -40,6 +40,22 @@ class StrategyLedgerSerializationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "do not reconcile"):
             ledger_from_payload(payload)
 
+    def test_round_trips_overlapping_alpha_and_beta_books(self) -> None:
+        alpha = ConfirmedFill(
+            "T1", "O1", "A1", "ALPHA", "OPTION", -10,
+            Decimal("0.1"), datetime(2026, 9, 18, tzinfo=timezone.utc),
+        )
+        beta = ConfirmedFill(
+            "T2", "O2", "A1", "BETA", "OPTION", 3,
+            Decimal("0.1"), datetime(2026, 9, 18, tzinfo=timezone.utc),
+        )
+        original = apply_confirmed_fills(empty_ledger("A1"), (alpha, beta))
+
+        restored = ledger_from_payload(ledger_to_payload(original))
+
+        self.assertEqual(restored.alpha_positions, {"OPTION": -10})
+        self.assertEqual(restored.beta_positions, {"OPTION": 3})
+
 
 if __name__ == "__main__":
     unittest.main()

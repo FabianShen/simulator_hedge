@@ -50,7 +50,7 @@ def build_hedge_context(
     instrument_greeks: Mapping[str, InstrumentGreeks],
     max_market_age_seconds: float = 10.0,
 ) -> HedgeContext:
-    """Reconcile books and construct the Alpha-excluding hedge universe."""
+    """Reconcile books and validate the complete eligible hedge universe."""
 
     if max_market_age_seconds <= 0:
         raise ValueError("max_market_age_seconds must be positive")
@@ -60,12 +60,6 @@ def build_hedge_context(
     alpha = _positions(alpha_positions, "Alpha")
     beta = _positions(beta_positions, "Beta")
     broker = _positions(broker_positions, "broker")
-    overlap = set(alpha) & set(beta)
-    if overlap:
-        raise ValueError(
-            "Alpha and Beta books must use disjoint instruments: "
-            + ", ".join(sorted(overlap))
-        )
     expected = _net(alpha, beta)
     if broker != expected:
         raise ValueError(
@@ -75,9 +69,7 @@ def build_hedge_context(
     universe = tuple(dict.fromkeys(str(value) for value in strategy_universe))
     if not universe:
         raise ValueError("strategy universe must not be empty")
-    hedge_universe = tuple(code for code in universe if code not in alpha)
-    if not hedge_universe:
-        raise ValueError("Alpha positions consume the entire strategy universe")
+    hedge_universe = universe
     required = set(expected) | set(hedge_universe)
     missing_greeks = required - set(instrument_greeks)
     if missing_greeks:

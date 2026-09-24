@@ -29,6 +29,10 @@ def main() -> None:
     parser.add_argument("strategy_ledger")
     parser.add_argument("--output", default="outputs/hedge_plan.json")
     parser.add_argument("--max-market-age", type=float, default=10.0)
+    parser.add_argument("--delta-limit", type=float, required=True)
+    parser.add_argument("--gamma-limit", type=float, required=True)
+    parser.add_argument("--target-delta", type=float, default=0.0)
+    parser.add_argument("--target-gamma", type=float, default=0.0)
     args = parser.parse_args()
     try:
         pricing_payload = _object(_read(args.pricing_request), "pricing request")
@@ -40,6 +44,10 @@ def main() -> None:
             portfolio_payload,
             ledger_payload,
             max_market_age_seconds=args.max_market_age,
+            delta_limit=args.delta_limit,
+            gamma_limit=args.gamma_limit,
+            target_delta=args.target_delta,
+            target_gamma=args.target_gamma,
         )
         output = {
             **result.proposal,
@@ -60,7 +68,7 @@ def main() -> None:
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
         raise SystemExit(f"hedge plan failed: {exc}") from exc
     print(
-        f"hedge pair: {', '.join(result.hedge_pair) or 'none'} "
+        f"active hedge legs: {', '.join(result.hedge_pair) or 'none'} "
         f"before delta={result.portfolio_risk.delta:.6f} "
         f"gamma={result.portfolio_risk.gamma:.6f}"
     )
@@ -90,6 +98,10 @@ def build_offline_hedge_decision(
     ledger_payload: Mapping[str, Any],
     *,
     max_market_age_seconds: float = 10.0,
+    delta_limit: float,
+    gamma_limit: float,
+    target_delta: float = 0.0,
+    target_gamma: float = 0.0,
 ):
     if ledger_payload.get("status") != "CONFIRMED":
         raise ValueError("strategy ledger must contain confirmed fills")
@@ -196,7 +208,12 @@ def build_offline_hedge_decision(
         confirmed_beta_positions=context.beta_positions,
         hedge_universe=context.hedge_universe,
     )
-    result = ReferenceHedgeEngine().propose(
+    result = ReferenceHedgeEngine(
+        delta_limit=delta_limit,
+        gamma_limit=gamma_limit,
+        target_delta=target_delta,
+        target_gamma=target_gamma,
+    ).propose(
         request, created_at=datetime.now(timezone.utc)
     )
     return result, context, pricing_exclusions

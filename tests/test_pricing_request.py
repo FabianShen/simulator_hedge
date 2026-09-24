@@ -77,6 +77,37 @@ class PricingRequestBuilderTests(unittest.TestCase):
         self.assertIsNotNone(result.delta)
         self.assertIsNotNone(result.gamma)
 
+    def test_adds_fresh_quoted_near_expiry_contract_as_hedge_candidate(self) -> None:
+        state, universe = _ready_market()
+        wing = OptionContract(
+            "WING", "UNDERLYING", OptionType.CALL, 3.9, MATURITY,
+            10_000, 0.0001,
+        )
+        state.apply_quote(_quote("WING", last=0.01, bid=0.009, ask=0.011))
+
+        request = build_pricing_request(
+            request_id="full-chain", as_of=NOW, market_state=state,
+            universe=universe, policy=_policy(), hedge_contracts=(wing,),
+        )
+
+        added = next(item for item in request["options"] if item["instrument"] == "WING")
+        self.assertAlmostEqual(added["marketPrice"], 0.01)
+        self.assertIn("observedAt", added)
+
+    def test_skips_unquoted_or_stale_extra_hedge_contract(self) -> None:
+        state, universe = _ready_market()
+        unquoted = OptionContract(
+            "NO-QUOTE", "UNDERLYING", OptionType.PUT, 2.9, MATURITY,
+            10_000, 0.0001,
+        )
+
+        request = build_pricing_request(
+            request_id="skip-extra", as_of=NOW, market_state=state,
+            universe=universe, policy=_policy(), hedge_contracts=(unquoted,),
+        )
+
+        self.assertNotIn("NO-QUOTE", {item["instrument"] for item in request["options"]})
+
     def test_builds_protocol_request_from_ready_market(self) -> None:
         state, universe = _ready_market()
 

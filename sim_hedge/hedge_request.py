@@ -87,7 +87,6 @@ def build_hedge_request(
         item["instrument"]
         for item in instruments
         if item["instrument"] in eligible
-        and item["instrument"] not in ledger.alpha_positions
     ]
     return {
         "requestId": f"hedge-{request_id}-ledger-{ledger.revision}",

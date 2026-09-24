@@ -18,14 +18,14 @@ from sim_hedge.beta_orders import build_beta_order_dry_run
 NOW = datetime(2026, 9, 21, 2, 0, tzinfo=timezone.utc)
 
 
-def state(beta_quantity: int = 0):
+def state(beta_quantity: int = 0, alpha_quantity: int = -1):
     alpha_intent = OrderIntent(
         client_order_id="alpha-1",
         account_id="A1",
         strategy="ALPHA",
         exchange_id="SZSE",
         instrument="ALPHA",
-        quantity=-1,
+        quantity=alpha_quantity,
         offset="OPEN",
         order_type="LIMIT",
         limit_price=Decimal("0.1000"),
@@ -42,7 +42,7 @@ def state(beta_quantity: int = 0):
             account_id="A1",
             strategy="ALPHA",
             instrument="ALPHA",
-            quantity=-1,
+            quantity=alpha_quantity,
             price=Decimal("0.1000"),
             executed_at=NOW,
         )
@@ -187,13 +187,36 @@ class BetaOrderDryRunTests(unittest.TestCase):
         self.assertTrue(old_ids.isdisjoint(new_ids))
         self.assertEqual(set(refreshed.abandoned_client_order_ids), old_ids)
 
-    def test_rejects_alpha_instrument_as_beta_trade(self) -> None:
-        ledger, registry = state()
-        hedge = accepted_proposal({"ALPHA": 1}, revision=ledger.revision)
+    def test_beta_trade_on_alpha_instrument_uses_broker_net_for_close(self) -> None:
+        ledger, registry = state(alpha_quantity=-10)
+        hedge = accepted_proposal({"ALPHA": 3}, revision=ledger.revision)
 
-        with self.assertRaisesRegex(ValueError, "owned by Alpha"):
+        output, _ = build_beta_order_dry_run(
+            hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=3
+        )
+
+        self.assertEqual(output["projected_beta_positions"], {"ALPHA": 3})
+        self.assertEqual(output["requests"][0]["direction"], "BUY")
+        self.assertEqual(output["requests"][0]["offset_flag"], "CLOSE")
+
+    def test_same_direction_beta_trade_on_alpha_instrument_is_open(self) -> None:
+        ledger, registry = state(alpha_quantity=-10)
+        hedge = accepted_proposal({"ALPHA": -3}, revision=ledger.revision)
+
+        output, _ = build_beta_order_dry_run(
+            hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=3
+        )
+
+        self.assertEqual(output["requests"][0]["direction"], "SELL")
+        self.assertEqual(output["requests"][0]["offset_flag"], "OPEN")
+
+    def test_rejects_beta_target_above_alpha_thirty_percent(self) -> None:
+        ledger, registry = state(alpha_quantity=-10)
+        hedge = accepted_proposal({"ALPHA": 4}, revision=ledger.revision)
+
+        with self.assertRaisesRegex(ValueError, "exceeds 30%"):
             build_beta_order_dry_run(
-                hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=1
+                hedge, ledger, registry, exchange_id="SZSE", max_total_contracts=4
             )
 
     def test_requires_explicit_volume_limit(self) -> None:
