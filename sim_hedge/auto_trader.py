@@ -10,12 +10,25 @@ import json
 import os
 from pathlib import Path
 from time import sleep
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
-from hedge_engine import abandon_unsubmitted_intents, empty_ledger, empty_order_registry
-from sim_hedge.adapters.sim_trading import SimTradingError, SimTradingPortfolioSource
+from hedge_engine import (
+    OrderRegistry,
+    StrategyLedger,
+    abandon_unsubmitted_intents,
+    empty_ledger,
+    empty_order_registry,
+    retire_verified_cancelled_beta,
+)
+from sim_hedge.adapters.sim_trading import (
+    BrokerOrder,
+    SimTradingError,
+    SimTradingPortfolioSource,
+    SimTradingUnknownOutcomeError,
+)
 from sim_hedge.alpha_orders import build_alpha_order_dry_run
 from sim_hedge.alpha_continuation import (
+    TERMINAL_ORDER_STATUSES,
     assess_alpha_continuation,
     select_alpha_continuation_request,
 )
@@ -67,6 +80,12 @@ def main() -> None:
     parser.add_argument("--max-beta-contracts", required=True, type=int)
     parser.add_argument("--max-snapshot-age", type=float, default=10.0)
     parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument(
+        "--cancel-after",
+        type=float,
+        default=180.0,
+        help="cancel a stuck working Beta order older than this many seconds",
+    )
     parser.add_argument("--once", action="store_true")
     parser.add_argument(
         "--recover-unsubmitted-alpha",
@@ -83,6 +102,8 @@ def main() -> None:
         parser.error("set SIM_REST_BASE_URL or pass --base-url")
     if args.interval <= 0:
         parser.error("--interval must be positive")
+    if args.cancel_after <= 0:
+        parser.error("--cancel-after must be positive")
     if args.max_alpha_contracts <= 0 or args.max_beta_contracts <= 0:
         parser.error("contract limits must be positive")
     if args.preflight and args.recover_unsubmitted_alpha:
@@ -138,6 +159,12 @@ def main() -> None:
                 max_alpha_contracts=args.max_alpha_contracts,
                 max_beta_contracts=args.max_beta_contracts,
                 max_snapshot_age=args.max_snapshot_age,
+                cancel_after=args.cancel_after,
+            )
+        except SimTradingUnknownOutcomeError as exc:
+            status = (
+                "STOP BETA: cancellation outcome is unknown; "
+                f"reconcile before restart: {exc}"
             )
         except (ValueError, KeyError, json.JSONDecodeError, OSError, SimTradingError) as exc:
             status = f"BLOCKED: {type(exc).__name__}: {exc}"
@@ -163,6 +190,7 @@ def run_once(
     max_alpha_contracts: int,
     max_beta_contracts: int,
     max_snapshot_age: float,
+    cancel_after: float = 180.0,
 ) -> str:
     """Perform at most one submission batch, always after reading broker state."""
 
@@ -275,6 +303,17 @@ def run_once(
     _write(ledger_path, ledger_to_payload(ledger))
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "reconciliation.json", reconciliation.report)
+    recovered_beta = _recover_stuck_beta(
+        source=source,
+        registry=registry,
+        ledger=ledger,
+        orders=orders,
+        cancel_after=cancel_after,
+        now=datetime.now(timezone.utc),
+        registry_path=registry_path,
+    )
+    if recovered_beta is not None:
+        return recovered_beta
     if not reconciliation.report["safe_for_hedging"]:
         plan_path = output_dir / "alpha_plan.json"
         if plan_path.exists() and ledger.alpha_positions and not adopted:
@@ -406,6 +445,63 @@ def run_once(
     _write(registry_path, registry_to_payload(registry))
     _write(output_dir / "beta_submission.json", report)
     return _submission_status("BETA", report)
+
+
+def _recover_stuck_beta(
+    *,
+    source: SimTradingPortfolioSource,
+    registry: OrderRegistry,
+    ledger: StrategyLedger,
+    orders: Sequence[BrokerOrder],
+    cancel_after: float,
+    now: datetime,
+    registry_path: Path,
+) -> str | None:
+    """Retire confirmed cancellations, or request cancellation of stale Beta orders."""
+
+    if cancel_after <= 0:
+        raise ValueError("cancel_after must be positive")
+    if registry.account_id != ledger.account_id:
+        raise ValueError("order registry and strategy ledger accounts do not match")
+
+    retired: list[str] = []
+    updated = registry
+    for order in orders:
+        client_id = updated.broker_orders.get(order.order_id)
+        intent = updated.intents.get(client_id) if client_id is not None else None
+        if (
+            intent is None
+            or intent.strategy != "BETA"
+            or order.status.upper() != "CANCELLED"
+            or order.traded_volume != 0
+            or client_id in updated.retired_cancelled_client_order_ids
+        ):
+            continue
+        updated = retire_verified_cancelled_beta(updated, client_id)
+        retired.append(order.order_id)
+    if retired:
+        _write(registry_path, registry_to_payload(updated))
+        return f"RETIRED cancelled Beta order(s): {', '.join(sorted(retired))}"
+
+    stuck: list[str] = []
+    for order in orders:
+        client_id = registry.broker_orders.get(order.order_id)
+        intent = registry.intents.get(client_id) if client_id is not None else None
+        status = order.status.upper()
+        if (
+            intent is None
+            or intent.strategy != "BETA"
+            or status in TERMINAL_ORDER_STATUSES
+            or status != "ACCEPTED"
+            or order.traded_volume != 0
+            or (now - order.created_at).total_seconds() <= cancel_after
+        ):
+            continue
+        source.cancel_etf_option_order(order.order_id, ledger.account_id)
+        stuck.append(order.order_id)
+    if stuck:
+        return f"CANCELLED stuck Beta order(s): {', '.join(sorted(stuck))}"
+    return None
 
 
 def recover_unsubmitted_alpha(

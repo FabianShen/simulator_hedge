@@ -241,6 +241,37 @@ class SimTradingPortfolioSource:
             )
         return payload
 
+    def cancel_etf_option_order(
+        self, order_id: str, account_id: str
+    ) -> Mapping[str, Any]:
+        """Cancel one ETF-option order by broker order_id."""
+
+        if not order_id or not account_id:
+            raise ValueError("order_id and account_id must not be empty")
+        if not self._access_token:
+            raise SimTradingError("not authenticated; provide a token or call login()")
+        try:
+            payload = _unwrap(
+                self._request_json(
+                    "POST",
+                    f"{self._base_url}/api/etf-options/orders/{order_id}/cancel",
+                    {
+                        "Authorization": f"Bearer {self._access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    {"account_id": account_id},
+                )
+            )
+        except (TimeoutError, URLError) as exc:
+            raise SimTradingUnknownOutcomeError(
+                f"ETF-option cancellation outcome is unknown: {exc}"
+            ) from exc
+        if not isinstance(payload, Mapping):
+            raise SimTradingUnknownOutcomeError(
+                "ETF-option cancellation response is not an object; outcome is unknown"
+            )
+        return payload
+
     def websocket_ticket(self) -> str:
         """Create the short-lived, single-use ticket required by the WS API."""
 
@@ -283,27 +314,30 @@ class SimTradingPortfolioSource:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
-            if (
-                method == "POST"
-                and url.endswith("/api/etf-options/orders")
-                and exc.code >= 500
-            ):
+            if method == "POST" and _is_etf_option_order_write(url) and exc.code >= 500:
                 raise SimTradingUnknownOutcomeError(
-                    f"simulator HTTP {exc.code}; submission outcome may be unknown: {detail}"
+                    f"simulator HTTP {exc.code}; order-write outcome may be unknown: {detail}"
                 ) from exc
             raise SimTradingError(f"simulator HTTP {exc.code}: {detail}") from exc
         except (URLError, TimeoutError) as exc:
-            if method == "POST" and url.endswith("/api/etf-options/orders"):
+            if method == "POST" and _is_etf_option_order_write(url):
                 raise SimTradingUnknownOutcomeError(
                     f"simulator connection failed; outcome may be unknown: {exc}"
                 ) from exc
             raise SimTradingError(f"simulator connection failed: {exc}") from exc
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            if method == "POST" and url.endswith("/api/etf-options/orders"):
+            if method == "POST" and _is_etf_option_order_write(url):
                 raise SimTradingUnknownOutcomeError(
-                    "simulator returned invalid JSON; submission outcome may be unknown"
+                    "simulator returned invalid JSON; order-write outcome may be unknown"
                 ) from exc
             raise SimTradingError("simulator returned invalid JSON") from exc
+
+
+def _is_etf_option_order_write(url: str) -> bool:
+    path = url.split("?", 1)[0].rstrip("/")
+    return path.endswith("/api/etf-options/orders") or (
+        path.endswith("/cancel") and "/api/etf-options/orders/" in path
+    )
 
 
 def normalize_portfolio_snapshot(raw: Any, account_id: str) -> PortfolioSnapshot:

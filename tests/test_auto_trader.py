@@ -10,8 +10,8 @@ from hedge_engine import (
     empty_ledger, empty_order_registry, register_order_intent,
 )
 from sim_hedge.adapters.sim_trading import BrokerOrder, BrokerOrderPage, ConfirmedTradePage
-from sim_hedge.auto_trader import recover_unsubmitted_alpha, run_once
-from sim_hedge.order_registry import registry_to_payload
+from sim_hedge.auto_trader import _recover_stuck_beta, recover_unsubmitted_alpha, run_once
+from sim_hedge.order_registry import registry_from_payload, registry_to_payload
 from sim_hedge.portfolio import (
     AccountSnapshot, ActiveOrderSnapshot, PortfolioSnapshot, PositionSnapshot,
 )
@@ -21,6 +21,7 @@ from sim_hedge.strategy_ledger import ledger_to_payload
 class FakeTradingSource:
     def __init__(self) -> None:
         self.requests = []
+        self.cancelled = []
         self.portfolio = PortfolioSnapshot(
             account=AccountSnapshot(
                 account_id="A1",
@@ -41,6 +42,10 @@ class FakeTradingSource:
         self.requests.append(dict(request))
         return {"order_id": f"O{len(self.requests)}"}
 
+    def cancel_etf_option_order(self, order_id, account_id):
+        self.cancelled.append((order_id, account_id))
+        return {"order_id": order_id, "status": "CANCELLED"}
+
     def load_order_page(self, account_id, trading_day, **kwargs):
         return BrokerOrderPage((), None, False)
 
@@ -49,6 +54,85 @@ class FakeTradingSource:
 
 
 class AutoTraderTests(unittest.TestCase):
+    def test_stuck_beta_is_cancelled_only_after_timeout(self) -> None:
+        now = datetime(2026, 9, 22, 2, 0, tzinfo=timezone.utc)
+        source = FakeTradingSource()
+        registry = register_order_intent(
+            empty_order_registry("A1"),
+            OrderIntent(
+                "beta-1", "A1", "BETA", "SZSE", "C34", 1,
+                "OPEN", "LIMIT", Decimal("0.1"), now - timedelta(seconds=180),
+                proposal_id="hedge-1",
+            ),
+        )
+        registry = bind_broker_order(
+            registry, client_order_id="beta-1", order_id="O1"
+        )
+        order = BrokerOrder(
+            "O1", "beta-1", "A1", "SZSE", "C34", "BUY", "OPEN",
+            "LIMIT", Decimal("0.1"), 1, 0, 1, 0, "ACCEPTED",
+            now - timedelta(seconds=180),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            registry_path = Path(directory) / "registry.json"
+            at_boundary = _recover_stuck_beta(
+                source=source, registry=registry, ledger=empty_ledger("A1"),
+                orders=(order,), cancel_after=180, now=now,
+                registry_path=registry_path,
+            )
+            after_boundary = _recover_stuck_beta(
+                source=source, registry=registry, ledger=empty_ledger("A1"),
+                orders=(order,), cancel_after=180,
+                now=now + timedelta(microseconds=1), registry_path=registry_path,
+            )
+
+        self.assertIsNone(at_boundary)
+        self.assertEqual(after_boundary, "CANCELLED stuck Beta order(s): O1")
+        self.assertEqual(source.cancelled, [("O1", "A1")])
+
+    def test_cancelled_beta_retirement_is_idempotent(self) -> None:
+        now = datetime(2026, 9, 22, 2, 0, tzinfo=timezone.utc)
+        source = FakeTradingSource()
+        registry = register_order_intent(
+            empty_order_registry("A1"),
+            OrderIntent(
+                "beta-1", "A1", "BETA", "SZSE", "C34", 1,
+                "OPEN", "LIMIT", Decimal("0.1"), now - timedelta(minutes=5),
+                proposal_id="hedge-1",
+            ),
+        )
+        registry = bind_broker_order(
+            registry, client_order_id="beta-1", order_id="O1"
+        )
+        order = BrokerOrder(
+            "O1", "beta-1", "A1", "SZSE", "C34", "BUY", "OPEN",
+            "LIMIT", Decimal("0.1"), 1, 0, 0, 1, "CANCELLED",
+            now - timedelta(minutes=5),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            registry_path = Path(directory) / "registry.json"
+            first = _recover_stuck_beta(
+                source=source, registry=registry, ledger=empty_ledger("A1"),
+                orders=(order,), cancel_after=180, now=now,
+                registry_path=registry_path,
+            )
+            saved = registry_from_payload(
+                json.loads(registry_path.read_text(encoding="utf-8"))
+            )
+            original = registry_path.read_bytes()
+            second = _recover_stuck_beta(
+                source=source, registry=saved, ledger=empty_ledger("A1"),
+                orders=(order,), cancel_after=180, now=now,
+                registry_path=registry_path,
+            )
+
+            self.assertEqual(registry_path.read_bytes(), original)
+
+        self.assertEqual(first, "RETIRED cancelled Beta order(s): O1")
+        self.assertIsNone(second)
+        self.assertEqual(saved.retired_cancelled_client_order_ids, ("beta-1",))
+        self.assertEqual(source.cancelled, [])
+
     def test_continues_other_alpha_leg_while_first_order_is_working(self) -> None:
         now = datetime.now(timezone.utc)
         source = FakeTradingSource()

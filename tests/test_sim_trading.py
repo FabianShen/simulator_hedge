@@ -297,6 +297,39 @@ class SimTradingSourceTests(unittest.TestCase):
         with self.assertRaises(SimTradingUnknownOutcomeError):
             source.submit_etf_option_order({"client_order_id": "C-1"})
 
+    def test_cancels_exact_etf_option_order(self) -> None:
+        calls = []
+
+        def request(method, url, headers, body):
+            calls.append((method, url, headers, body))
+            return {"order_id": "O-1", "status": "CANCELLED"}
+
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="secret-token",
+            request_json=request,
+        )
+
+        response = source.cancel_etf_option_order("O-1", "A-1")
+
+        self.assertEqual(response["status"], "CANCELLED")
+        self.assertEqual(calls[0][0], "POST")
+        self.assertEqual(
+            calls[0][1],
+            "http://simulator.test/api/etf-options/orders/O-1/cancel",
+        )
+        self.assertEqual(calls[0][3], {"account_id": "A-1"})
+
+    def test_cancellation_timeout_is_an_unknown_outcome(self) -> None:
+        source = SimTradingPortfolioSource(
+            "http://simulator.test",
+            access_token="secret-token",
+            request_json=lambda *args: (_ for _ in ()).throw(TimeoutError("late")),
+        )
+
+        with self.assertRaises(SimTradingUnknownOutcomeError):
+            source.cancel_etf_option_order("O-1", "A-1")
+
 
 if __name__ == "__main__":
     unittest.main()
