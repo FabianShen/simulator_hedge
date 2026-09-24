@@ -1,4 +1,4 @@
-"""Normalized portfolio values independent of the simulated-trading API."""
+"""Normalized portfolio values independent of trading-system adapters."""
 
 from __future__ import annotations
 

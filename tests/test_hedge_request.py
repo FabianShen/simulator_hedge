@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from hedge_engine import ConfirmedFill, apply_confirmed_fills, empty_ledger
 from sim_hedge.hedge_client.request import build_hedge_request
-from sim_hedge.pricing_types import OptionValuation, PricingBatch, SabrFit
+from sim_hedge.domain.pricing import OptionValuation, PricingBatch, SabrFit
 
 
 NOW = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)

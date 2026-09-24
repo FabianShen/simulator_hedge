@@ -23,7 +23,7 @@ from sim_hedge.execution.submission import (
     validate_timestamp_freshness,
     validate_registered_requests,
 )
-from sim_hedge.portfolio import PortfolioSnapshot
+from sim_hedge.domain.portfolio import PortfolioSnapshot
 
 
 def main() -> None:

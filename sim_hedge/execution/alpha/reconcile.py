@@ -30,7 +30,7 @@ from sim_hedge.adapters.sim_trading import (
 )
 from sim_hedge.config import load_env_file
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
-from sim_hedge.portfolio import PortfolioSnapshot
+from sim_hedge.domain.portfolio import PortfolioSnapshot
 from sim_hedge.state.ledger import ledger_from_payload, ledger_to_payload
 
 

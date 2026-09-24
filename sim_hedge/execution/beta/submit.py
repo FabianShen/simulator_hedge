@@ -25,7 +25,7 @@ from sim_hedge.execution.submission import (
     validate_registered_requests,
     validate_timestamp_freshness,
 )
-from sim_hedge.portfolio import PortfolioSnapshot
+from sim_hedge.domain.portfolio import PortfolioSnapshot
 from sim_hedge.state.ledger import ledger_from_payload
 
 

@@ -12,7 +12,7 @@ from hedge_engine import (
 from sim_hedge.adapters.sim_trading import BrokerOrder, BrokerOrderPage, ConfirmedTradePage
 from sim_hedge.auto_trader import _recover_stuck_beta, recover_unsubmitted_alpha, run_once
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
-from sim_hedge.portfolio import (
+from sim_hedge.domain.portfolio import (
     AccountSnapshot, ActiveOrderSnapshot, PortfolioSnapshot, PositionSnapshot,
 )
 from sim_hedge.state.ledger import ledger_to_payload

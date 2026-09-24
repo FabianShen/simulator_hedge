@@ -14,7 +14,7 @@ from sim_hedge.execution.alpha.finalize import finalize_alpha, validate_alpha_ad
 from sim_hedge.adapters.sim_trading import BrokerOrder, BrokerOrderPage, ConfirmedTradePage
 from sim_hedge.auto_trader import run_once
 from sim_hedge.state.registry import registry_to_payload
-from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
+from sim_hedge.domain.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
 from sim_hedge.state.ledger import ledger_to_payload
 
 

@@ -3,7 +3,7 @@ from datetime import date
 from types import SimpleNamespace
 
 from sim_hedge.adapters.ymm_reference import ReferenceDataError, YmmReferenceDataSource
-from sim_hedge.domain import OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
 
 
 class FakeInstrument:

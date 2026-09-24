@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 
-from sim_hedge.portfolio import (
+from sim_hedge.domain.portfolio import (
     AccountSnapshot,
     PortfolioSnapshot,
     PositionSnapshot,

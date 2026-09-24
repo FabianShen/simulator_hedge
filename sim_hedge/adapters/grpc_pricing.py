@@ -7,7 +7,7 @@ import grpc
 from google.protobuf import json_format
 
 from pricing.v1 import pricing_pb2, pricing_pb2_grpc
-from sim_hedge.pricing_types import (
+from sim_hedge.domain.pricing import (
     OptionValuation,
     PricingBatch,
     PricingServiceHealth,

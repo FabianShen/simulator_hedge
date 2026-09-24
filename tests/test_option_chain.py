@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 
-from sim_hedge.domain import OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
 from sim_hedge.market.chain import subscription, summarize
 
 

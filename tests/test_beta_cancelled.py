@@ -12,7 +12,7 @@ from sim_hedge.adapters.sim_trading import (
 from sim_hedge.execution.alpha.reconcile import reconcile_alpha_state
 from sim_hedge.execution.beta.cancelled import verify_and_retire_cancelled_beta
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
-from sim_hedge.portfolio import AccountSnapshot, ActiveOrderSnapshot, PortfolioSnapshot, PositionSnapshot
+from sim_hedge.domain.portfolio import AccountSnapshot, ActiveOrderSnapshot, PortfolioSnapshot, PositionSnapshot
 
 
 NOW = datetime(2026, 9, 22, 3, 0, tzinfo=timezone.utc)

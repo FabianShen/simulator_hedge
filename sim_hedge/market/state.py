@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from threading import Lock
 from typing import Iterable
 
-from sim_hedge.domain import MarketQuote
+from sim_hedge.domain.quote import MarketQuote
 
 
 @dataclass(frozen=True)

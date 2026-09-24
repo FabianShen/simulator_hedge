@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from sim_hedge.execution.alpha.strategy import AlphaPlan, build_short_otm_alpha_plan
-from sim_hedge.domain import OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
 
 
 def main() -> None:

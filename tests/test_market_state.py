@@ -1,7 +1,7 @@
 import unittest
 from datetime import date, datetime, timedelta, timezone
 
-from sim_hedge.domain import MarketQuote
+from sim_hedge.domain.quote import MarketQuote
 from sim_hedge.market.state import MarketState
 
 

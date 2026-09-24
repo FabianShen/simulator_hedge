@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from threading import Event, Lock
 
-from sim_hedge.pricing_types import PricingBatch, SabrFit
+from sim_hedge.domain.pricing import PricingBatch, SabrFit
 from sim_hedge.pricing_client.worker import ContinuousPricingWorker
 
 

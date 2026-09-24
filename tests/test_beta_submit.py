@@ -14,7 +14,7 @@ from hedge_engine import (
 from sim_hedge.adapters.sim_trading import SimTradingUnknownOutcomeError
 from sim_hedge.execution.beta.submit import submit_beta_orders
 from sim_hedge.execution.submission import request_for_intent
-from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
+from sim_hedge.domain.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
 
 
 NOW = datetime(2026, 9, 21, 2, 0, tzinfo=timezone.utc)

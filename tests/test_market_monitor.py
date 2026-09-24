@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from sim_hedge.domain import MarketQuote
+from sim_hedge.domain.quote import MarketQuote
 from sim_hedge.market.monitor import MarketMonitor
 from sim_hedge.market.state import MarketState
 

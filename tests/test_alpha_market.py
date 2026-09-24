@@ -2,7 +2,8 @@ from datetime import date, datetime, timezone
 import unittest
 
 from sim_hedge.market.alpha_market import build_alpha_market_snapshot
-from sim_hedge.domain import MarketQuote, OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
+from sim_hedge.domain.quote import MarketQuote
 from sim_hedge.market.state import MarketState
 
 

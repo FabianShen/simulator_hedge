@@ -2,7 +2,7 @@
 
 from typing import Any, Mapping, Protocol
 
-from sim_hedge.pricing_types import PricingBatch, PricingServiceHealth
+from sim_hedge.domain.pricing import PricingBatch, PricingServiceHealth
 
 
 class PricingClient(Protocol):

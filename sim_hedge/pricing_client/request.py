@@ -10,7 +10,8 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from hedge_engine import StrategyLedger
-from sim_hedge.domain import MarketQuote, OptionContract
+from sim_hedge.domain.contract import OptionContract
+from sim_hedge.domain.quote import MarketQuote
 from sim_hedge.market.state import MarketState
 from sim_hedge.market.universe import StrategyUniverse
 

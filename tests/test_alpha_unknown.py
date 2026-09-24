@@ -11,7 +11,7 @@ from sim_hedge.adapters.sim_trading import (
     BrokerOrder, BrokerOrderPage, BrokerTradeOrderPage,
 )
 from sim_hedge.execution.alpha.unknown import verify_and_retire
-from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
+from sim_hedge.domain.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
 
 
 def case():

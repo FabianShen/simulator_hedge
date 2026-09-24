@@ -13,7 +13,7 @@ from hedge_engine import (
     register_order_intent,
 )
 from sim_hedge.state.execution_state import assess_broker_execution
-from sim_hedge.portfolio import (
+from sim_hedge.domain.portfolio import (
     AccountSnapshot,
     ActiveOrderSnapshot,
     PortfolioSnapshot,

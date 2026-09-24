@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from threading import Lock
 
-from sim_hedge.portfolio import PortfolioSnapshot, PositionSnapshot
+from sim_hedge.domain.portfolio import PortfolioSnapshot, PositionSnapshot
 
 
 class PortfolioState:

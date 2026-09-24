@@ -18,7 +18,7 @@ from hedge_engine import (
     StrategyLedger,
     combined_strategy_positions,
 )
-from sim_hedge.portfolio import ActiveOrderSnapshot, PortfolioSnapshot
+from sim_hedge.domain.portfolio import ActiveOrderSnapshot, PortfolioSnapshot
 
 
 def assess_broker_execution(

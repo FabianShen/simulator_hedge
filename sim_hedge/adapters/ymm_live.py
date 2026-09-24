@@ -8,7 +8,7 @@ from queue import Full, Queue
 from threading import Thread
 from typing import Any, Callable
 
-from sim_hedge.domain import MarketQuote
+from sim_hedge.domain.quote import MarketQuote
 
 
 class LiveMarketDataError(RuntimeError):

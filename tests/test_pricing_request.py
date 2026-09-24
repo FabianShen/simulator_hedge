@@ -10,7 +10,8 @@ from pricing_engine import SabrParameters, SabrPricingEngine
 from pricing_engine.__main__ import load_request
 from pricing_engine.black76 import black76_price
 from pricing_engine.sabr import sabr_volatility
-from sim_hedge.domain import MarketQuote, OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
+from sim_hedge.domain.quote import MarketQuote
 from sim_hedge.market.state import MarketState
 from sim_hedge.pricing_client.request import (
     PricingRequestError,

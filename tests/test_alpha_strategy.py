@@ -7,7 +7,7 @@ from sim_hedge.execution.alpha.strategy import (
     build_short_otm_alpha_plan,
     short_option_opening_margin,
 )
-from sim_hedge.domain import OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
 
 
 def contract(option_type: OptionType, strike: float, maturity: date) -> OptionContract:

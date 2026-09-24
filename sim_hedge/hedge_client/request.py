@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Mapping
 
 from hedge_engine import StrategyLedger
-from sim_hedge.pricing_types import PricingBatch
+from sim_hedge.domain.pricing import PricingBatch
 
 
 def build_hedge_request(

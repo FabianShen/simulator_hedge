@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 import http.cookiejar
 
 from hedge_engine import ConfirmedFill
-from sim_hedge.portfolio import (
+from sim_hedge.domain.portfolio import (
     AccountSnapshot,
     ActiveOrderSnapshot,
     PortfolioSnapshot,

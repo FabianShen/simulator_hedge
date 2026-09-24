@@ -15,7 +15,7 @@ from hedge_engine import (
 )
 from sim_hedge.adapters.sim_trading import BrokerOrder
 from sim_hedge.execution.alpha.reconcile import recover_order_bindings, reconcile_alpha_state
-from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
+from sim_hedge.domain.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
 
 
 NOW = datetime(2026, 9, 18, 2, 0, tzinfo=timezone.utc)

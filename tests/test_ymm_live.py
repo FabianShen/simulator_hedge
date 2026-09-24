@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 from sim_hedge.adapters.ymm_live import LiveMarketDataError, YmmLiveDataSource, normalize_tick
-from sim_hedge.domain import MarketQuote
+from sim_hedge.domain.quote import MarketQuote
 
 
 class FakeSdk:

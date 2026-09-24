@@ -4,7 +4,7 @@ from datetime import date, datetime
 from importlib import import_module
 from typing import Any
 
-from sim_hedge.domain import OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
 
 
 class ReferenceDataError(RuntimeError):

@@ -17,7 +17,7 @@ from sim_hedge.adapters.sim_trading import (
     normalize_position,
     normalize_portfolio_snapshot,
 )
-from sim_hedge.portfolio import PortfolioSnapshot
+from sim_hedge.domain.portfolio import PortfolioSnapshot
 from sim_hedge.state.portfolio_state import PortfolioState
 
 

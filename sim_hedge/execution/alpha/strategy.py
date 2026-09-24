@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Mapping
 
-from sim_hedge.domain import OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
 
 
 class AlphaPlanError(ValueError):

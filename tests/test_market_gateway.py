@@ -18,8 +18,9 @@ from hedge_service import ReferenceHedgeEngine
 from hedge_service.grpc_server import create_server
 from sim_hedge import __main__ as gateway
 from sim_hedge.adapters.grpc_hedging import HedgeServiceError
-from sim_hedge.domain import MarketQuote, OptionContract, OptionType
-from sim_hedge.pricing_types import OptionValuation, PricingBatch, PricingServiceHealth, SabrFit
+from sim_hedge.domain.contract import OptionContract, OptionType
+from sim_hedge.domain.quote import MarketQuote
+from sim_hedge.domain.pricing import OptionValuation, PricingBatch, PricingServiceHealth, SabrFit
 from sim_hedge.state.ledger import ledger_to_payload
 
 

@@ -760,9 +760,11 @@ sim_hedge/
 │   │   ├── beta/          Beta lifecycle
 │   │   └── submission.py  Shared submission validation
 │   ├── state/             Portfolio, ledger, registry, and execution state
-│   ├── domain.py          Domain values pending Phase 2 consolidation
-│   ├── portfolio.py       Portfolio values pending Phase 2 consolidation
-│   ├── pricing_types.py   Pricing values pending Phase 2 consolidation
+│   ├── domain/
+│   │   ├── contract.py    Option contract metadata
+│   │   ├── quote.py       Normalized live quotes
+│   │   ├── portfolio.py   Normalized account and portfolio snapshots
+│   │   └── pricing.py     Transport-neutral pricing results
 │   ├── auto_trader.py     Trading composition root
 │   └── ports.py           Application interfaces
 ├── tests/

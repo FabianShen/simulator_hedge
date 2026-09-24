@@ -4,7 +4,7 @@ import unittest
 from sim_hedge.adapters.sim_trading import SimTradingUnknownOutcomeError
 from sim_hedge.execution.alpha.orders import build_alpha_order_dry_run
 from sim_hedge.execution.alpha.submit import submit_alpha_orders
-from sim_hedge.portfolio import AccountSnapshot, PortfolioSnapshot
+from sim_hedge.domain.portfolio import AccountSnapshot, PortfolioSnapshot
 
 
 NOW = datetime(2026, 9, 18, 2, 0, tzinfo=timezone.utc)

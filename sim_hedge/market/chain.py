@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from itertools import groupby
 
-from sim_hedge.domain import OptionContract, OptionType
+from sim_hedge.domain.contract import OptionContract, OptionType
 
 
 @dataclass(frozen=True)

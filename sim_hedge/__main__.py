@@ -13,7 +13,7 @@ from sim_hedge.adapters.grpc_hedging import GrpcHedgeClient, HedgeServiceError
 from sim_hedge.adapters.grpc_pricing import GrpcPricingClient, PricingServiceError
 from sim_hedge.market.alpha_market import build_alpha_market_snapshot
 from sim_hedge.config import load_env_file
-from sim_hedge.domain import OptionContract
+from sim_hedge.domain.contract import OptionContract
 from sim_hedge.market.monitor import MarketMonitor
 from sim_hedge.market.state import MarketState
 from sim_hedge.live_risk import write_live_risk_snapshot
