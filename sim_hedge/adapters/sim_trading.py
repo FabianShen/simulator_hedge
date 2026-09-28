@@ -19,6 +19,7 @@ from sim_hedge.domain.portfolio import (
     PortfolioSnapshot,
     PositionSnapshot,
 )
+from sim_hedge.jsonio import parse_iso_utc
 
 
 class SimTradingError(RuntimeError):
@@ -707,12 +708,9 @@ def _datetime(value: Any) -> datetime:
     if value is None or value == "":
         raise SimTradingError("trade_time is missing")
     try:
-        result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parse_iso_utc(str(value), "trade_time")
     except ValueError as exc:
         raise SimTradingError(f"invalid trade_time: {value!r}") from exc
-    if result.tzinfo is None:
-        raise SimTradingError("trade_time must be timezone-aware")
-    return result
 
 
 def _optional_text(value: Any) -> str | None:

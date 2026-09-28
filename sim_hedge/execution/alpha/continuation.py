@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
-from decimal import Decimal
 import json
-from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import OrderRegistry, StrategyLedger, combined_strategy_positions
 from sim_hedge.state.registry import registry_from_payload
 from sim_hedge.execution.submission import request_for_intent, validate_timestamp_freshness
 from sim_hedge.state.ledger import ledger_from_payload
+from sim_hedge.jsonio import (
+    coerce_int as _integer,
+    read_json as _read,
+    require_object as _object,
+    write_json,
+)
 
 
 TERMINAL_ORDER_STATUSES = {"FILLED", "CANCELLED", "PARTIALLY_CANCELLED", "REJECTED"}
@@ -174,9 +177,7 @@ def main() -> None:
             ledger_from_payload(_object(_read(args.strategy_ledger), "strategy ledger")),
             _object(_read(args.reconciliation), "reconciliation"),
         )
-        destination = Path(args.output)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        write_json(args.output, report)
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         raise SystemExit(f"Alpha continuation assessment failed: {exc}") from exc
     print(
@@ -185,28 +186,6 @@ def main() -> None:
         f"unsubmitted_intents={len(report['unsubmitted_intent_ids'])}; orders submitted=0"
     )
     print(f"wrote assessment: {args.output}")
-
-
-def _read(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
-
-
-def _integer(value: Any, name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer")
-    try:
-        number = Decimal(str(value))
-    except (ValueError, ArithmeticError) as exc:
-        raise ValueError(f"{name} must be an integer") from exc
-    if not number.is_finite() or number != number.to_integral_value():
-        raise ValueError(f"{name} must be an integer")
-    return int(number)
 
 
 def _positive_int(value: Any, name: str) -> int:

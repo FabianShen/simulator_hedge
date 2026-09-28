@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from hedge_engine import (
     OrderIntent,
@@ -25,6 +24,11 @@ from sim_hedge.adapters.sim_trading import (
 )
 from sim_hedge.config import load_env_file
 from sim_hedge.execution.alpha.reconcile import load_all_fills
+from sim_hedge.jsonio import (
+    read_json as _read,
+    require_object as _object,
+    write_json as _write,
+)
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 from sim_hedge.state.ledger import ledger_from_payload, ledger_to_payload
 
@@ -226,27 +230,6 @@ def _order_id_for_client(registry: OrderRegistry, client_order_id: str) -> str:
     if len(matches) != 1:
         raise ValueError("superseded intent must have exactly one broker order")
     return matches[0]
-
-
-def _read(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write(path: str, payload: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
 
 
 if __name__ == "__main__":

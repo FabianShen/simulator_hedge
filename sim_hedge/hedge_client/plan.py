@@ -7,7 +7,6 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
-import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,6 +19,12 @@ from hedge_engine import (
 from hedge_service import HedgeInstrument, HedgeRequest, ReferenceHedgeEngine
 from pricing_engine import SabrPricingEngine
 from pricing_engine.__main__ import load_request
+from sim_hedge.jsonio import (
+    coerce_int as _integer_quantity,
+    read_json as _read,
+    require_object as _object,
+    write_json as _write,
+)
 
 
 def main() -> None:
@@ -311,7 +316,7 @@ def _broker_positions(portfolio: Mapping[str, Any]) -> dict[str, int]:
         code = str(position.get("instrument") or "")
         if not code:
             raise ValueError("broker position is missing instrument")
-        volume = _integer_quantity(position["volume"], f"broker position {code}")
+        volume = _decimal_quantity(position["volume"], f"broker position {code}")
         direction = str(position.get("direction") or "").upper()
         if direction in {"SHORT", "SELL"}:
             signed = -volume
@@ -323,34 +328,15 @@ def _broker_positions(portfolio: Mapping[str, Any]) -> dict[str, int]:
     return {code: quantity for code, quantity in result.items() if quantity}
 
 
-def _read(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write(path: str, value: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
-
-
 def _datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def _integer_quantity(value: Any, name: str) -> int:
+def _decimal_quantity(value: Any, name: str) -> int:
+    """Read an integral Decimal serialized by portfolio_remote as JSON text."""
+
     quantity = Decimal(str(value))
-    if quantity != quantity.to_integral_value():
+    if not quantity.is_finite() or quantity != quantity.to_integral_value():
         raise ValueError(f"{name} must be an integer")
     return int(quantity)
 

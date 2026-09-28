@@ -17,6 +17,7 @@ from sim_hedge.execution.alpha.reconcile import load_all_fills
 from sim_hedge.config import load_env_file
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 from sim_hedge.state.ledger import ledger_from_payload
+from sim_hedge.jsonio import require_object as _object, write_json as _write
 
 
 def verify_and_retire_cancelled_beta(
@@ -183,22 +184,6 @@ def main() -> None:
     print(f"retired zero-fill cancelled Beta order {args.order_id}; orders submitted=0")
     print(f"wrote registry: {registry_path}")
     print(f"wrote resolution audit: {audit_path}")
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} must be an object")
-    return value
-
-
-def _write(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

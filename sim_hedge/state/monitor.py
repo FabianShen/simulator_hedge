@@ -12,6 +12,11 @@ from typing import Any, Mapping
 from execution_engine import ExecutionAssessment, start_execution_batch
 from sim_hedge.adapters.sim_trading import SimTradingError, SimTradingPortfolioSource
 from sim_hedge.config import load_env_file
+from sim_hedge.jsonio import (
+    read_json as _read,
+    require_object as _object,
+    write_json as _write,
+)
 from sim_hedge.state.execution_state import assess_broker_execution
 from sim_hedge.state.registry import registry_from_payload
 from sim_hedge.state.ledger import ledger_from_payload
@@ -148,27 +153,6 @@ def _write_once(path: str, payload: Mapping[str, Any]) -> bool:
         return False
     _write(path, payload)
     return True
-
-
-def _read(path: str | Path) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write(path: str, payload: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
 
 
 if __name__ == "__main__":

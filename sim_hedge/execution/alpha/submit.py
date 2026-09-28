@@ -6,7 +6,6 @@ import argparse
 from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import OrderRegistry
@@ -24,6 +23,11 @@ from sim_hedge.execution.submission import (
     validate_registered_requests,
 )
 from sim_hedge.domain.portfolio import PortfolioSnapshot
+from sim_hedge.jsonio import (
+    read_json as _read,
+    require_object as _object,
+    write_json as _write,
+)
 
 
 def main() -> None:
@@ -156,27 +160,6 @@ def _validate_submission(
         max_age=max_age,
     )
     return requests
-
-
-def _read(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write(path: str, payload: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
 
 
 if __name__ == "__main__":

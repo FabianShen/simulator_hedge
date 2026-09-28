@@ -26,6 +26,11 @@ from sim_hedge.adapters.sim_trading import (
     SimTradingPortfolioSource,
     SimTradingUnknownOutcomeError,
 )
+from sim_hedge.jsonio import (
+    read_json as _read,
+    require_object as _object,
+    write_json as _write,
+)
 from sim_hedge.execution.alpha.orders import build_alpha_order_dry_run
 from sim_hedge.execution.alpha.continuation import (
     TERMINAL_ORDER_STATUSES,
@@ -574,26 +579,6 @@ def _source(base_url: str, parser: argparse.ArgumentParser) -> SimTradingPortfol
         parser.error("set SIM_ACCESS_TOKEN, or set SIM_USERNAME and SIM_PASSWORD")
     source.login(username, password)
     return source
-
-
-def _read(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _write(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
 
 
 def _retry_after(value: Any) -> dict[str, datetime]:

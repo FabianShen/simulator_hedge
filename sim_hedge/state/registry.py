@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 from decimal import Decimal, DecimalException
 import json
-import os
-from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import (
@@ -16,6 +13,13 @@ from hedge_engine import (
     bind_broker_order,
     empty_order_registry,
     register_order_intent,
+)
+from sim_hedge.jsonio import (
+    coerce_int as _integer,
+    parse_iso_utc,
+    read_json as _read,
+    require_object as _object,
+    write_json as _write,
 )
 
 
@@ -71,7 +75,9 @@ def intent_from_payload(payload: Mapping[str, Any]) -> OrderIntent:
         limit_price=(
             None if raw_price in (None, "") else Decimal(str(raw_price))
         ),
-        created_at=_datetime(str(payload.get("created_at") or "")),
+        created_at=parse_iso_utc(
+            str(payload.get("created_at") or ""), "order created_at"
+        ),
         proposal_id=(
             None
             if payload.get("proposal_id") in (None, "")
@@ -154,41 +160,6 @@ def registry_from_payload(payload: Mapping[str, Any]) -> OrderRegistry:
         abandoned_client_order_ids=tuple(str(value) for value in raw_abandoned),
         retired_cancelled_client_order_ids=tuple(str(value) for value in raw_retired),
     )
-
-
-def _read(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write(path: str, payload: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
-
-
-def _integer(value: Any, name: str) -> int:
-    number = Decimal(str(value))
-    if number != number.to_integral_value():
-        raise ValueError(f"{name} must be an integer")
-    return int(number)
-
-
-def _datetime(value: str) -> datetime:
-    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if result.tzinfo is None:
-        raise ValueError("order created_at must be timezone-aware")
-    return result
 
 
 if __name__ == "__main__":

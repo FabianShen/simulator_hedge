@@ -15,6 +15,14 @@ from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 
 
 class OrderRegistrySerializationTests(unittest.TestCase):
+    def test_rejects_non_integer_revision_types(self) -> None:
+        for value in (True, 1.0, "1", "3.0"):
+            with self.subTest(value=value):
+                payload = registry_to_payload(empty_order_registry("A1"))
+                payload["revision"] = value
+                with self.assertRaisesRegex(ValueError, "must be an integer"):
+                    registry_from_payload(payload)
+
     def test_round_trips_intent_binding_and_strategy_mapping(self) -> None:
         intent = OrderIntent(
             client_order_id="alpha-001",

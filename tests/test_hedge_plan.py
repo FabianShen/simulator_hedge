@@ -374,7 +374,7 @@ def _portfolio(alpha, beta=None) -> dict:
         "active_orders": [],
         "positions": [
             {"instrument": instrument, "direction": "LONG" if quantity > 0 else "SHORT",
-             "volume": abs(quantity)}
+             "volume": str(abs(quantity))}
             for instrument, quantity in positions.items() if quantity
         ],
     }

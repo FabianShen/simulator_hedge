@@ -6,12 +6,11 @@ import argparse
 from datetime import datetime
 from decimal import Decimal
 import json
-import os
-from pathlib import Path
 from typing import Any, Mapping
 
 from sim_hedge.execution.alpha.strategy import AlphaPlan, build_short_otm_alpha_plan
 from sim_hedge.domain.contract import OptionContract, OptionType
+from sim_hedge.jsonio import read_json as _read_json, require_object as _object, write_json
 
 
 def main() -> None:
@@ -40,7 +39,7 @@ def main() -> None:
         )
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
         raise SystemExit(f"alpha plan failed: {exc}") from exc
-    _write_json(args.output, projection)
+    write_json(args.output, projection, ensure_ascii=False)
     print(
         f"alpha plan: maturity={plan.maturity.isoformat()} "
         f"options={len(plan.legs)} margin_capacity={plan.margin_capacity} "
@@ -158,30 +157,6 @@ def project_alpha_plan(
             for leg in plan.legs
         ],
     }
-
-
-def _read_json(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write_json(path: str, value: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
 
 
 def _option_type(value: Any) -> OptionType:

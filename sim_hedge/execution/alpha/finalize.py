@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,6 +14,7 @@ from hedge_engine import (
 )
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 from sim_hedge.state.ledger import ledger_from_payload
+from sim_hedge.jsonio import read_json, write_json as _write
 
 
 def finalize_alpha(
@@ -135,21 +135,9 @@ def main() -> None:
 
 
 def _read(path: str | Path) -> Mapping[str, Any]:
-    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    value = read_json(path)
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain an object")
     return value
-
-
-def _write(path: Path, value: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 if __name__ == "__main__":
     main()

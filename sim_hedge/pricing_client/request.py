@@ -3,8 +3,6 @@
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from typing import Iterable
-import json
-import os
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -14,6 +12,7 @@ from sim_hedge.domain.contract import OptionContract
 from sim_hedge.domain.quote import MarketQuote
 from sim_hedge.market.state import MarketState
 from sim_hedge.market.universe import StrategyUniverse
+from sim_hedge.jsonio import write_json
 
 
 class PricingRequestError(RuntimeError):
@@ -220,15 +219,7 @@ def build_pricing_request(
 def record_pricing_request(path: str | Path, request: dict[str, Any]) -> None:
     """Atomically record a request that can be replayed by the pricing engine."""
 
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as file:
-            json.dump(request, file, ensure_ascii=False, indent=2)
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_json(path, request, ensure_ascii=False, trailing_newline=False)
 
 
 def _reference_price(

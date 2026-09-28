@@ -7,6 +7,14 @@ from sim_hedge.state.ledger import ledger_from_payload, ledger_to_payload
 
 
 class StrategyLedgerSerializationTests(unittest.TestCase):
+    def test_rejects_non_integer_revision_types(self) -> None:
+        for value in (True, 1.0, "1", "3.0"):
+            with self.subTest(value=value):
+                payload = ledger_to_payload(empty_ledger("A1"))
+                payload["revision"] = value
+                with self.assertRaisesRegex(ValueError, "must be an integer"):
+                    ledger_from_payload(payload)
+
     def test_round_trips_confirmed_positions_and_trade_identity(self) -> None:
         fill = ConfirmedFill(
             trade_id="T1",

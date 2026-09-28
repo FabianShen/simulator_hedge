@@ -5,15 +5,13 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 from decimal import Decimal
-import json
 import os
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from sim_hedge.adapters.sim_trading import SimTradingPortfolioSource
 from sim_hedge.adapters.sim_trading_ws import SimTradingSnapshotStream
 from sim_hedge.config import load_env_file
 from sim_hedge.state.portfolio_state import PortfolioState
+from sim_hedge.jsonio import write_json
 
 
 def main() -> None:
@@ -117,16 +115,7 @@ def _print_summary(source: str, snapshot, revision: int) -> None:
 
 
 def _write_json(path: str, value: object) -> None:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(value, default=_json_default, indent=2, ensure_ascii=False)
-    with NamedTemporaryFile(
-        "w", encoding="utf-8", dir=target.parent, delete=False
-    ) as handle:
-        handle.write(payload)
-        handle.write("\n")
-        temporary = Path(handle.name)
-    temporary.replace(target)
+    write_json(path, value, default=_json_default, ensure_ascii=False)
 
 
 def _json_default(value: object) -> str:

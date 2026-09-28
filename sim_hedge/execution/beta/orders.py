@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 from hashlib import sha256
 import json
-import os
-from pathlib import Path
 from typing import Any, Mapping
 
 from hedge_engine import (
@@ -23,6 +20,13 @@ from hedge_engine import validate_hedge_proposal
 from sim_hedge.state.registry import registry_from_payload, registry_to_payload
 from sim_hedge.execution.submission import request_for_intent
 from sim_hedge.state.ledger import ledger_from_payload
+from sim_hedge.jsonio import (
+    coerce_int as _integer,
+    parse_iso_utc,
+    read_json as _read,
+    require_object as _object,
+    write_json as _write,
+)
 
 
 def main() -> None:
@@ -104,7 +108,9 @@ def build_beta_order_dry_run(
     if not strategy_intents_fully_filled(registry, ledger, "ALPHA"):
         raise ValueError("Alpha intents are not fully confirmed by broker trades")
 
-    created_at = _datetime(str(hedge.get("created_at") or ""))
+    created_at = parse_iso_utc(
+        str(hedge.get("created_at") or ""), "hedge proposal created_at"
+    )
     legs: list[tuple[str, int, str]] = []
     for instrument, raw_quantity in incremental.items():
         code = str(instrument)
@@ -231,46 +237,6 @@ def _client_order_id(
     identity = f"{proposal_id}:{instrument}:{offset}:{sequence}:COUNTERPARTY"
     digest = sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"beta-{instrument}-{digest}"
-
-
-def _read(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write(path: str, payload: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value
-
-
-def _integer(value: Any, name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer")
-    try:
-        number = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be an integer") from exc
-    if number != value:
-        raise ValueError(f"{name} must be an integer")
-    return number
-
-
-def _datetime(value: str) -> datetime:
-    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if result.tzinfo is None:
-        raise ValueError("hedge proposal created_at must be timezone-aware")
-    return result
 
 
 if __name__ == "__main__":

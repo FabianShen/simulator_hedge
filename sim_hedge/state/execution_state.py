@@ -19,6 +19,7 @@ from hedge_engine import (
     combined_strategy_positions,
 )
 from sim_hedge.domain.portfolio import ActiveOrderSnapshot, PortfolioSnapshot
+from sim_hedge.jsonio import coerce_int as _integer, normalize_positions, require_object
 
 
 def assess_broker_execution(
@@ -50,7 +51,7 @@ def assess_broker_execution(
     if ledger.revision < base_revision:
         raise ValueError("strategy ledger is older than the hedge proposal")
     base_beta = _positions(
-        _mapping(proposal.get("confirmed_beta_positions"), "confirmed Beta"),
+        require_object(proposal.get("confirmed_beta_positions"), "confirmed Beta"),
         "confirmed Beta",
     )
     batch = start_execution_batch(
@@ -154,33 +155,9 @@ def _apply(positions: dict[str, int], instrument: str, quantity: int) -> None:
 
 
 def _positions(values: Mapping[str, Any], name: str) -> dict[str, int]:
-    result: dict[str, int] = {}
-    for raw_instrument, raw_quantity in values.items():
-        instrument = str(raw_instrument)
-        quantity = _integer(raw_quantity, f"{name} {instrument}")
-        if not instrument:
-            raise ValueError(f"{name} instrument must not be empty")
-        if quantity:
-            result[instrument] = quantity
-    return dict(sorted(result.items()))
-
-
-def _mapping(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} must be an object")
-    return value
-
-
-def _integer(value: Any, name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer")
-    try:
-        number = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be an integer") from exc
-    if number != value:
-        raise ValueError(f"{name} must be an integer")
-    return number
+    if any(not str(instrument) for instrument in values):
+        raise ValueError(f"{name} instrument must not be empty")
+    return normalize_positions(values, name)
 
 
 def _whole(value: Decimal, name: str) -> int:

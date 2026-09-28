@@ -6,6 +6,7 @@ from typing import Any, Iterable, Mapping
 
 from hedge_engine import StrategyLedger
 from sim_hedge.domain.pricing import PricingBatch
+from sim_hedge.jsonio import require_object as _mapping
 
 
 def build_hedge_request(
@@ -101,9 +102,3 @@ def build_hedge_request(
         "hedgeUniverse": hedge_universe,
         "configuration": {"model": "HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR"},
     }
-
-
-def _mapping(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} must be an object")
-    return value

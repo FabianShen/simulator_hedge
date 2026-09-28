@@ -1,13 +1,12 @@
 """Periodic human/JSON projection of in-memory market state."""
 
 from datetime import datetime, timedelta, timezone
-import json
-import os
 from pathlib import Path
 from threading import Event, Thread
 from typing import Any, Callable, Iterable
 
 from sim_hedge.market.state import MarketState
+from sim_hedge.jsonio import write_json
 
 
 class MarketMonitor:
@@ -117,8 +116,4 @@ class MarketMonitor:
 
 
 def _write_json_atomic(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.tmp")
-    with temporary.open("w", encoding="utf-8") as file:
-        json.dump(payload, file, ensure_ascii=False, indent=2)
-    os.replace(temporary, path)
+    write_json(path, payload, ensure_ascii=False, trailing_newline=False)

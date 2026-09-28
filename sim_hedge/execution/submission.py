@@ -15,6 +15,7 @@ from sim_hedge.adapters.sim_trading import (
     SimTradingError,
     SimTradingUnknownOutcomeError,
 )
+from sim_hedge.jsonio import parse_iso_utc, require_object as _object
 
 
 Submit = Callable[[Mapping[str, Any]], Mapping[str, Any]]
@@ -124,20 +125,7 @@ def request_for_intent(intent: OrderIntent) -> dict[str, Any]:
 
 
 def _require_fresh(name: str, value: Any, *, now: datetime, max_age: float) -> None:
-    observed = _datetime(str(value or ""))
+    observed = parse_iso_utc(str(value or ""), "pricing timestamp")
     age = (now - observed).total_seconds()
     if age < 0 or age > max_age:
         raise ValueError(f"{name} is stale: age={age:g}s")
-
-
-def _datetime(value: str) -> datetime:
-    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if result.tzinfo is None:
-        raise ValueError("pricing timestamp must be timezone-aware")
-    return result
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} is not an object")
-    return value

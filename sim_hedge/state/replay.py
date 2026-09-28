@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import json
-import os
-from pathlib import Path
 from typing import Any, Mapping
 
 from execution_engine import (
@@ -14,6 +12,13 @@ from execution_engine import (
     WorkingExecutionOrder,
     assess_execution,
     start_execution_batch,
+)
+from sim_hedge.jsonio import (
+    coerce_int as _integer,
+    read_json as _read,
+    require_list as _list,
+    require_object as _object,
+    write_json as _write,
 )
 
 
@@ -128,45 +133,6 @@ def _working(
             value.get("remaining_quantity"), "working remaining quantity"
         ),
     )
-
-
-def _read(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _write(path: str, payload: Mapping[str, Any]) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _object(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} must be an object")
-    return value
-
-
-def _list(value: Any, name: str) -> list[Any]:
-    if not isinstance(value, list):
-        raise ValueError(f"{name} must be a list")
-    return value
-
-
-def _integer(value: Any, name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer")
-    try:
-        result = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be an integer") from exc
-    if result != value:
-        raise ValueError(f"{name} must be an integer")
-    return result
 
 
 if __name__ == "__main__":

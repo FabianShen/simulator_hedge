@@ -10,6 +10,7 @@ from typing import Any
 from sim_hedge.ports import PricingClient
 from sim_hedge.pricing_client.request import PricingRequestError
 from sim_hedge.domain.pricing import PricingBatch
+from sim_hedge.jsonio import parse_iso_utc
 
 
 @dataclass(frozen=True)
@@ -200,7 +201,5 @@ class ContinuousPricingWorker:
 def _parse_protocol_time(value: Any) -> datetime:
     if not isinstance(value, str):
         raise ValueError("pricing request asOf must be a string")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError("pricing request asOf must be timezone-aware")
+    parsed = parse_iso_utc(value, "pricing request asOf")
     return parsed.astimezone(timezone.utc)
