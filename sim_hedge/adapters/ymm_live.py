@@ -188,19 +188,74 @@ def normalize_tick(message: dict[str, Any], received_at: datetime | None = None)
         raise LiveMarketDataError(f"tick for {instrument} has no valid trading_date")
 
     try:
+        bid, bid_size = _price_and_size(message, "bid", "bid_vol", instrument)
+        ask, ask_size = _price_and_size(message, "ask", "ask_vol", instrument)
+    except ValueError as exc:
+        if isinstance(exc, LiveMarketDataError):
+            raise
+        raise LiveMarketDataError(f"invalid depth for {instrument}: {exc}") from exc
+
+    try:
         return MarketQuote(
             instrument=instrument,
             observed_at=observed_at,
             received_at=received_at or datetime.now(timezone.utc),
             trading_date=trading_date,
             last=_positive_float(message.get("last")),
-            bid=_first_positive(message.get("bid")),
-            ask=_first_positive(message.get("ask")),
+            bid=bid,
+            ask=ask,
             previous_close=_positive_float(message.get("prev_close")),
             previous_settlement=_positive_float(message.get("prev_settlement")),
+            bid_size=bid_size,
+            ask_size=ask_size,
         )
     except ValueError as exc:
         raise LiveMarketDataError(f"invalid tick for {instrument}: {exc}") from exc
+
+
+def _price_and_size(
+    message: dict[str, Any], price_key: str, size_key: str, instrument: str
+) -> tuple[float | None, int | None]:
+    prices = message.get(price_key)
+    sizes = message.get(size_key)
+    if prices is None:
+        if sizes is not None:
+            raise LiveMarketDataError(
+                f"{size_key} has no matching {price_key} prices for {instrument}"
+            )
+        return None, None
+    if prices is not None and sizes is not None:
+        try:
+            price_count, size_count = len(prices), len(sizes)
+        except TypeError as exc:
+            raise LiveMarketDataError(
+                f"{price_key} and {size_key} must be sequences for {instrument}"
+            ) from exc
+        if price_count != size_count:
+            raise LiveMarketDataError(
+                f"{price_key} and {size_key} depth lengths differ for {instrument}"
+            )
+    price = _first_positive(prices)
+    size = _first_nonnegative_integer(sizes, size_key)
+    return price, size
+
+
+def _first_nonnegative_integer(values: Any, field: str) -> int | None:
+    if values is None:
+        return None
+    try:
+        value = values[0]
+    except (IndexError, KeyError, TypeError):
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must contain nonnegative integer values")
+    try:
+        number = int(value)
+        if float(value) != number or number < 0:
+            raise ValueError
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field} must contain nonnegative integer values") from exc
+    return number
 
 
 def _first_positive(values: Any) -> float | None:

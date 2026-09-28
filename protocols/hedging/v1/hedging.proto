@@ -18,8 +18,10 @@ enum OptionType {
 }
 
 enum HedgeModel {
+  option allow_alias = true;
   HEDGE_MODEL_UNSPECIFIED = 0;
-  HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR = 1;
+  HEDGE_MODEL_SCENARIO_ROUTED = 1;
+  HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR = 1 [deprecated = true];
 }
 
 message HealthResponse {
@@ -40,6 +42,12 @@ message InstrumentRisk {
   double gamma = 6;
   double theta_per_year = 7;
   double vega_per_absolute_volatility = 8;
+
+  // Best bid/ask and displayed size are optional for older request producers.
+  optional double bid = 9;
+  optional double ask = 10;
+  optional int64 bid_size = 11;
+  optional int64 ask_size = 12;
 }
 
 message HedgeConfiguration {
@@ -68,6 +76,24 @@ message Greeks {
   double theta = 4;
 }
 
+message HedgeExecutionLeg {
+  string instrument = 1;
+  string side = 2;
+  sint64 signed_quantity = 3;
+  optional int64 displayed_size = 4;
+  double estimated_transaction_cost = 5;
+  double short_margin_per_contract = 6;
+  optional int64 displayed_depth_limit = 7;
+}
+
+message HedgeExecutionDiagnostics {
+  double estimated_transaction_cost = 1;
+  double estimated_short_margin_before = 2;
+  double estimated_short_margin_after = 3;
+  double short_margin_limit = 4;
+  repeated HedgeExecutionLeg legs = 5;
+}
+
 message HedgeProposal {
   string request_id = 1;
   string protocol_version = 2;
@@ -89,6 +115,9 @@ message HedgeProposal {
   Greeks confirmed_beta_risk = 17;
   Greeks portfolio_risk = 18;
   Greeks risk_at_target_beta = 19;
-  double normalized_residual = 20;
+  // Reduction in absolute Gamma scenario risk (before minus after).
+  double gamma_improvement = 20;
   google.protobuf.Timestamp source_market_as_of = 21;
+  HedgeExecutionDiagnostics execution_diagnostics = 22;
+  string decision_policy = 23;
 }

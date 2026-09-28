@@ -72,8 +72,9 @@ versioned incremental Beta proposal after every accepted pricing result:
 
 # Terminal 2
 .\.venv\Scripts\python.exe -m hedge_service.grpc_server `
-  --target-delta 5000 --target-gamma 0 `
-  --delta-limit 2000 --gamma-limit 5000
+  --capital 100000000 `
+  --delta-entry-risk-band 30000 --delta-target-risk-band 10000 `
+  --gamma-entry-risk-band 10000 --gamma-target-risk-band 10000
 
 # Terminal 3
 .\.venv\Scripts\python.exe -m sim_hedge `
@@ -83,10 +84,14 @@ versioned incremental Beta proposal after every accepted pricing result:
   --risk-output outputs\live_risk.json
 ```
 
-The hedge service requires absolute Delta and Gamma limits. They are measured
-in the same multiplier-scaled units as `risk.portfolio`; a hedge is triggered
-when either risk moves outside its target-centered band. Targets default to
-zero, but both limits must always be supplied explicitly.
+The hedge service routes to its cost-, displayed-depth-, and margin-aware D/G
+MILP whenever either notional scenario-risk entry band is breached; otherwise
+it runs the stateless MSH policy. Capital and risk bands are service-side
+configuration. The emitted proposal identifies the selected D/G-MILP or MSH
+policy and includes incremental trades, Gamma-risk improvement, estimated
+transaction costs, side-specific displayed depth and applied depth cap, and
+short-margin diagnostics. These estimates do not guarantee execution or broker
+margin treatment.
 
 The ledger is reloaded after every pricing response, so a separately reconciled
 fill becomes part of the next risk calculation without restarting the live
@@ -469,16 +474,18 @@ a broker portfolio plus a fill-confirmed Alpha/Beta strategy ledger:
   outputs\live-pricing-request.json `
   outputs\portfolio_state.json `
   outputs\strategy_ledger.json `
-  --target-delta 5000 --target-gamma 0 `
-  --delta-limit 2000 --gamma-limit 5000 `
+  --capital 100000000 `
+  --delta-entry-risk-band 30000 --delta-target-risk-band 10000 `
+  --gamma-entry-risk-band 10000 --gamma-target-risk-band 10000 `
   --output outputs\hedge_plan.json
 ```
 
 The offline command replays the recorded request through the pricing engine,
 validates the broker portfolio and market observations, then calls the same
-`ReferenceHedgeEngine` used by the live hedge service. That engine checks its
-risk bands before solving a bounded, minimum-norm Delta/Gamma hedge over all
-eligible near-expiry legs and integerizing the result. Alpha instruments may
+`ReferenceHedgeEngine` used by the live hedge service. Either notional
+scenario-risk entry-band breach selects the bounded, cost/depth/margin-aware
+D/G MILP; otherwise the stateless MSH policy selects a minimum-sufficient
+inventory adjustment. Alpha instruments may
 carry Beta hedges, but each resulting Beta leg is limited to 30% of its frozen
 Alpha quantity. An inside-band portfolio produces a
 no-trade proposal. `outputs/strategy_ledger.json` keeps fill-confirmed Alpha
@@ -510,16 +517,19 @@ trading SDKs:
 ```powershell
 # Terminal 1
 .\.venv\Scripts\python.exe -m hedge_service.grpc_server `
-  --delta-limit 0 --gamma-limit 0
+  --capital 100000000 `
+  --delta-entry-risk-band 30000 --delta-target-risk-band 10000 `
+  --gamma-entry-risk-band 10000 --gamma-target-risk-band 10000
 
 # Terminal 2: recorded request; no live data or broker connection
 .\.venv\Scripts\python.exe -m sim_hedge.hedge_client.remote `
   protocols\hedging\v1\examples\hedge_request.json
 ```
 
-The reference server runs the bounded multi-leg Delta/Gamma solver. A future Python or
-C++ optimizer can implement `protocols/hedging/v1/hedging.proto` without
-changing the market gateway or execution application.
+The reference server routes between the bounded multi-leg Delta/Gamma solver
+and stateless MSH. A future Python or C++ optimizer can implement
+`protocols/hedging/v1/hedging.proto` without changing the market gateway or
+execution application.
 
 Convert that reviewed hedge plan into registered Beta order intents without
 contacting the simulator:

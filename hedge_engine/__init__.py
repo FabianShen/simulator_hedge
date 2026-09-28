@@ -11,13 +11,10 @@ from hedge_engine.accounting import (
 from hedge_engine.context import HedgeContext, MarketSnapshot, build_hedge_context
 from hedge_engine.engine import (
     Greeks,
-    HedgeDecision,
     InstrumentGreeks,
-    TradableHedgeDecision,
-    evaluate_delta_gamma_hedge,
-    integerize_delta_gamma_hedge,
     aggregate_greeks,
 )
+from hedge_engine.config import HedgeConfig
 from hedge_engine.orders import (
     OrderIntent,
     OrderRegistry,
@@ -43,15 +40,13 @@ __all__ = [
     "ConfirmedFill",
     "Greeks",
     "HedgeContext",
-    "HedgeDecision",
+    "HedgeConfig",
     "HEDGE_PROPOSAL_VERSION",
     "InstrumentGreeks",
     "MarketSnapshot",
     "OrderIntent",
     "OrderRegistry",
     "StrategyLedger",
-    "TradableHedgeDecision",
-    "evaluate_delta_gamma_hedge",
     "build_hedge_context",
     "build_hedge_proposal",
     "bind_broker_order",
@@ -62,7 +57,6 @@ __all__ = [
     "empty_ledger",
     "empty_order_registry",
     "mark_submission_unknown",
-    "integerize_delta_gamma_hedge",
     "register_order_intent",
     "retire_verified_absent_submission",
     "retire_verified_cancelled_beta",

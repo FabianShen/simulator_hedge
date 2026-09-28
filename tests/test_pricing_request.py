@@ -94,6 +94,7 @@ class PricingRequestBuilderTests(unittest.TestCase):
         added = next(item for item in request["options"] if item["instrument"] == "WING")
         self.assertAlmostEqual(added["marketPrice"], 0.01)
         self.assertIn("observedAt", added)
+        self.assertEqual((added["bidSize"], added["askSize"]), (17, 19))
 
     def test_skips_unquoted_or_stale_extra_hedge_contract(self) -> None:
         state, universe = _ready_market()
@@ -133,6 +134,10 @@ class PricingRequestBuilderTests(unittest.TestCase):
                 option["marketPriceSource"] == "MARKET_PRICE_SOURCE_MID"
                 for option in request["options"]
             )
+        )
+        self.assertTrue(
+            all((option["bidSize"], option["askSize"]) == (17, 19)
+                for option in request["options"])
         )
 
     def test_refuses_unsafe_or_stale_market(self) -> None:
@@ -284,6 +289,8 @@ def _quote(
         last=last,
         bid=bid,
         ask=ask,
+        bid_size=17,
+        ask_size=19,
     )
 
 

@@ -125,7 +125,9 @@ def _proposal_from_proto(response: hedging_pb2.HedgeProposal) -> dict[str, Any]:
             "portfolio": _greeks(response.portfolio_risk),
             "at_target_beta": _greeks(response.risk_at_target_beta),
         },
-        "normalized_residual": response.normalized_residual,
+        "gamma_improvement": response.gamma_improvement,
+        "decision_policy": response.decision_policy,
+        "execution_diagnostics": _execution_diagnostics(response.execution_diagnostics),
     }
 
 
@@ -135,6 +137,32 @@ def _greeks(value) -> dict[str, float]:
         "gamma": value.gamma,
         "vega": value.vega,
         "theta": value.theta,
+    }
+
+
+def _execution_diagnostics(value) -> dict[str, Any]:
+    return {
+        "estimated_transaction_cost": value.estimated_transaction_cost,
+        "estimated_short_margin_before": value.estimated_short_margin_before,
+        "estimated_short_margin_after": value.estimated_short_margin_after,
+        "short_margin_limit": value.short_margin_limit,
+        "legs": [
+            {
+                "instrument": leg.instrument,
+                "side": leg.side,
+                "signed_quantity": leg.signed_quantity,
+                "displayed_size": (
+                    leg.displayed_size if leg.HasField("displayed_size") else None
+                ),
+                "displayed_depth_limit": (
+                    leg.displayed_depth_limit
+                    if leg.HasField("displayed_depth_limit") else None
+                ),
+                "estimated_transaction_cost": leg.estimated_transaction_cost,
+                "short_margin_per_contract": leg.short_margin_per_contract,
+            }
+            for leg in value.legs
+        ],
     }
 
 

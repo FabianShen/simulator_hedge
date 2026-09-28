@@ -41,6 +41,9 @@ class HedgeRequestBuilderTests(unittest.TestCase):
         self.assertEqual(request["confirmedAlphaPositions"], {"ALPHA": -1})
         self.assertEqual(request["confirmedBetaPositions"], {})
         self.assertEqual(request["hedgeUniverse"], ["ALPHA", "CALL", "PUT"])
+        call = next(item for item in request["instruments"] if item["instrument"] == "CALL")
+        self.assertEqual((call["bid"], call["ask"]), (0.09, 0.11))
+        self.assertEqual((call["bidSize"], call["askSize"]), (12, 15))
 
     def test_explicit_candidates_may_include_an_alpha_instrument(self) -> None:
         request = build_hedge_request(
@@ -161,6 +164,10 @@ def _option(instrument, option_type, strike):
         "optionType": option_type,
         "strike": strike,
         "contractMultiplier": 1,
+        "bid": 0.09,
+        "ask": 0.11,
+        "bidSize": 12,
+        "askSize": 15,
     }
 
 

@@ -10,6 +10,7 @@ from typing import Any
 import grpc
 
 from hedge_service import ReferenceHedgeEngine
+from hedge_engine.config import HedgeConfig
 from hedge_service.protobuf_codec import (
     PROTOCOL_VERSION,
     health_response,
@@ -83,17 +84,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the local hedge gRPC service")
     parser.add_argument("--bind", default=DEFAULT_BIND)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--delta-limit", type=_non_negative_float, required=True)
-    parser.add_argument("--gamma-limit", type=_non_negative_float, required=True)
-    parser.add_argument("--target-delta", type=_finite_float, default=0.0)
-    parser.add_argument("--target-gamma", type=_finite_float, default=0.0)
+    parser.add_argument("--capital", type=_positive_float, default=100_000_000.0)
+    parser.add_argument(
+        "--delta-entry-risk-band", "--delta-limit", dest="delta_entry_risk_band",
+        type=_positive_float, default=30_000.0,
+        help="scenario-risk entry band (legacy --delta-limit alias)",
+    )
+    parser.add_argument("--delta-target-risk-band", type=_positive_float, default=10_000.0)
+    parser.add_argument(
+        "--gamma-entry-risk-band", "--gamma-limit", dest="gamma_entry_risk_band",
+        type=_positive_float, default=10_000.0,
+        help="scenario-risk entry band (legacy --gamma-limit alias)",
+    )
+    parser.add_argument("--gamma-target-risk-band", type=_positive_float, default=10_000.0)
     args = parser.parse_args()
 
     engine = ReferenceHedgeEngine(
-        delta_limit=args.delta_limit,
-        gamma_limit=args.gamma_limit,
-        target_delta=args.target_delta,
-        target_gamma=args.target_gamma,
+        config=HedgeConfig(
+            delta_entry_risk_band=args.delta_entry_risk_band,
+            delta_target_risk_band=args.delta_target_risk_band,
+            gamma_entry_risk_band=args.gamma_entry_risk_band,
+            gamma_target_risk_band=args.gamma_target_risk_band,
+        ),
+        capital=args.capital,
     )
     server, port = create_server(
         args.bind, engine=engine, max_workers=args.workers
@@ -114,10 +127,10 @@ def _finite_float(value: str) -> float:
     return result
 
 
-def _non_negative_float(value: str) -> float:
+def _positive_float(value: str) -> float:
     result = _finite_float(value)
-    if result < 0:
-        raise argparse.ArgumentTypeError("value must not be negative")
+    if result <= 0:
+        raise argparse.ArgumentTypeError("value must be positive")
     return result
 
 

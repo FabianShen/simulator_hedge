@@ -1,7 +1,7 @@
 {
   "requestId": "hedge-request-20260921T030000Z-1",
   "protocolVersion": "sim-hedge/hedge-proposal/v1",
-  "proposalId": "hedge-f9db8a0374757f94eaca",
+  "proposalId": "hedge-fa1b7f9d893d8a4154d5",
   "proposalType": "INCREMENTAL_BETA",
   "createdAt": "2026-09-21T03:00:00Z",
   "sourcePricingRequestId": "pricing-20260921T030000Z-7",
@@ -9,23 +9,25 @@
   "accountId": "ETO_EXAMPLE",
   "baseStrategyLedgerRevision": "6",
   "engineName": "reference-python-hedge",
-  "engineVersion": "0.3.0",
+  "engineVersion": "0.4.0",
   "confirmedBetaPositions": {},
   "incrementalTrades": {
-    "CALL": "3",
-    "PUT": "1"
+    "A": "1",
+    "B": "1",
+    "C": "1"
   },
   "targetBetaPositions": {
-    "CALL": "3",
-    "PUT": "1"
+    "A": "1",
+    "B": "1",
+    "C": "1"
   },
   "ordersGenerated": false,
-  "hedgePair": ["CALL", "PUT"],
+  "hedgePair": ["A", "B", "C"],
   "alphaRisk": {
-    "delta": -2.0,
-    "gamma": -4.0,
-    "vega": -0.2,
-    "theta": 0.1
+    "delta": -10000.0,
+    "gamma": -20000.0,
+    "vega": -2000.0,
+    "theta": 1000.0
   },
   "confirmedBetaRisk": {
     "delta": 0.0,
@@ -34,16 +36,50 @@
     "theta": 0.0
   },
   "portfolioRisk": {
-    "delta": -2.0,
-    "gamma": -4.0,
-    "vega": -0.2,
-    "theta": 0.1
+    "delta": -10000.0,
+    "gamma": -20000.0,
+    "vega": -2000.0,
+    "theta": 1000.0
   },
   "riskAtTargetBeta": {
-    "delta": 0.0,
-    "gamma": 0.0,
-    "vega": 0.6000000000000001,
-    "theta": -0.30000000000000004
+    "vega": -2000.0,
+    "theta": 1000.0
   },
-  "normalizedResidual": 0.0
+  "gammaImprovement": 10.89,
+  "decisionPolicy": "D_G_MILP",
+  "executionDiagnostics": {
+    "estimatedTransactionCost": 6.0,
+    "estimatedShortMarginBefore": 3959.999999999999,
+    "estimatedShortMarginAfter": 3959.999999999999,
+    "shortMarginLimit": 70000000.0,
+    "legs": [
+      {
+        "instrument": "A",
+        "side": "BUY",
+        "signedQuantity": "1",
+        "displayedSize": "1",
+        "displayedDepthLimit": "1",
+        "estimatedTransactionCost": 2.0,
+        "shortMarginPerContract": 3959.999999999999
+      },
+      {
+        "instrument": "B",
+        "side": "BUY",
+        "signedQuantity": "1",
+        "displayedSize": "1",
+        "displayedDepthLimit": "1",
+        "estimatedTransactionCost": 2.0,
+        "shortMarginPerContract": 3310.0
+      },
+      {
+        "instrument": "C",
+        "side": "BUY",
+        "signedQuantity": "1",
+        "displayedSize": "1",
+        "displayedDepthLimit": "1",
+        "estimatedTransactionCost": 2.0,
+        "shortMarginPerContract": 3310.0
+      }
+    ]
+  }
 }

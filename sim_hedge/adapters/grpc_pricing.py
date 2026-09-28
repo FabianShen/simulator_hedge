@@ -60,7 +60,18 @@ class GrpcPricingClient:
     def price(self, request: Mapping[str, Any]) -> PricingBatch:
         message = pricing_pb2.PriceRequest()
         try:
-            json_format.ParseDict(dict(request), message)
+            payload = dict(request)
+            # Book fields travel in the recorded pricing snapshot for hedge
+            # request construction; the pricing protocol does not consume them.
+            payload["options"] = [
+                {
+                    key: value
+                    for key, value in option.items()
+                    if key not in {"bid", "ask", "bidSize", "askSize"}
+                }
+                for option in request.get("options", ())
+            ]
+            json_format.ParseDict(payload, message)
         except (json_format.ParseError, ValueError, TypeError) as exc:
             raise PricingServiceError(f"invalid pricing request: {exc}") from exc
         try:

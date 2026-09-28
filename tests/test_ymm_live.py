@@ -61,6 +61,8 @@ class NormalizeTickTests(unittest.TestCase):
                 "last": 2.031,
                 "bid": [2.030, 2.029],
                 "ask": [2.032, 2.033],
+                "bid_vol": [12, 9],
+                "ask_vol": [15, 7],
                 "prev_close": 2.025,
                 "prev_settlement": 0.123,
             },
@@ -71,9 +73,21 @@ class NormalizeTickTests(unittest.TestCase):
             quote,
             MarketQuote(
                 "159915.XSHE", observed, received, date(2026, 9, 16),
-                2.031, 2.030, 2.032, 2.025, 0.123,
+                2.031, 2.030, 2.032, 2.025, 0.123, 12, 15,
             ),
         )
+
+    def test_rejects_mismatched_quote_and_size_depth(self) -> None:
+        with self.assertRaisesRegex(LiveMarketDataError, "depth lengths differ"):
+            normalize_tick({
+                "order_book_id": "159915.XSHE",
+                "datetime": datetime(2026, 9, 16, 10, 30),
+                "last": 2.031,
+                "bid": [2.030, 2.029],
+                "bid_vol": [12],
+                "ask": [2.032],
+                "ask_vol": [15],
+            })
 
     def test_normalizes_integer_wire_timestamps(self) -> None:
         quote = normalize_tick({

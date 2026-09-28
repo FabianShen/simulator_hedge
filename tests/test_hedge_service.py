@@ -1,40 +1,22 @@
-import json
-import unittest
 from datetime import datetime, timezone
-from pathlib import Path
+import unittest
 
-from google.protobuf import json_format
-
+from hedge_engine.config import HedgeConfig
 from hedge_service import HedgeInstrument, HedgeRequest, ReferenceHedgeEngine
-from hedge_service.protobuf_codec import request_from_proto
-from hedging.v1 import hedging_pb2
 
 
-REQUEST_PATH = (
-    Path(__file__).parents[1]
-    / "protocols"
-    / "hedging"
-    / "v1"
-    / "examples"
-    / "hedge_request.json"
-)
-RESPONSE_PATH = REQUEST_PATH.with_name("hedge_response.json")
 NOW = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)
 
 
-def make_engine(**overrides) -> ReferenceHedgeEngine:
-    return ReferenceHedgeEngine(
-        delta_limit=overrides.pop("delta_limit", 0.0),
-        gamma_limit=overrides.pop("gamma_limit", 0.0),
-        **overrides,
-    )
-
-def make_request(
-    *,
-    alpha_positions=None,
-    beta_positions=None,
-    hedge_universe=("CALL", "PUT"),
-) -> HedgeRequest:
+def make_request(*, alpha=None, beta=None, instruments=None, universe=None):
+    if instruments is None:
+        instruments = (
+            _instrument("ALPHA", "CALL", 105, 2.0, 2.0),
+            _instrument("CALL", "CALL", 100, 1.0, 1.0),
+            _instrument("PUT", "PUT", 100, -1.0, 1.0),
+            _instrument("CALL_W", "CALL", 110, 0.5, 1.0),
+            _instrument("PUT_W", "PUT", 90, -0.5, 1.0),
+        )
     return HedgeRequest(
         request_id="hedge-test",
         source_pricing_request_id="pricing-test",
@@ -42,333 +24,183 @@ def make_request(
         account_id="ACCOUNT",
         base_ledger_revision=1,
         spot=100.0,
-        instruments=(
-            HedgeInstrument(
-                instrument="ALPHA",
-                option_type="CALL",
-                strike=105.0,
-                contract_multiplier=1,
-                delta=2.0,
-                gamma=4.0,
-                theta=0.0,
-                vega=0.0,
-            ),
-            HedgeInstrument(
-                instrument="CALL",
-                option_type="CALL",
-                strike=100.0,
-                contract_multiplier=1,
-                delta=1.0,
-                gamma=1.0,
-                theta=0.0,
-                vega=0.0,
-            ),
-            HedgeInstrument(
-                instrument="PUT",
-                option_type="PUT",
-                strike=100.0,
-                contract_multiplier=1,
-                delta=-1.0,
-                gamma=1.0,
-                theta=0.0,
-                vega=0.0,
-            ),
-        ),
-        confirmed_alpha_positions=(
-            {"ALPHA": -1}
-            if alpha_positions is None
-            else alpha_positions
-        ),
-        confirmed_beta_positions=(
-            {}
-            if beta_positions is None
-            else beta_positions
-        ),
-        hedge_universe=tuple(hedge_universe),
+        instruments=tuple(instruments),
+        confirmed_alpha_positions={"ALPHA": -1} if alpha is None else alpha,
+        confirmed_beta_positions={} if beta is None else beta,
+        hedge_universe=("CALL", "PUT", "CALL_W", "PUT_W") if universe is None else tuple(universe),
     )
 
+
+def _instrument(code, option_type, strike, delta, gamma, *, bid=1.0, ask=1.0,
+                bid_size=100, ask_size=100, multiplier=1):
+    return HedgeInstrument(
+        instrument=code,
+        option_type=option_type,
+        strike=strike,
+        contract_multiplier=multiplier,
+        delta=delta,
+        gamma=gamma,
+        theta=0.0,
+        vega=0.0,
+        bid=bid,
+        ask=ask,
+        bid_size=bid_size,
+        ask_size=ask_size,
+    )
+
+
+def dg_config(**overrides):
+    values = dict(
+        option_fee=0.0,
+        v2_trade_limit=10,
+        v2_position_limit=20,
+        delta_entry_risk_band=1.5,
+        delta_target_risk_band=0.2,
+        gamma_entry_risk_band=0.75,
+        gamma_target_risk_band=0.1,
+    )
+    values.update(overrides)
+    return HedgeConfig(**values)
+
+
 class ReferenceHedgeServiceTests(unittest.TestCase):
-    def test_absolute_limits_are_required(self) -> None:
-        with self.assertRaises(TypeError):
-            ReferenceHedgeEngine()  # type: ignore[call-arg]
-
-    def test_negative_absolute_limit_is_rejected(self) -> None:
-        with self.assertRaisesRegex(ValueError, "delta_limit"):
-            ReferenceHedgeEngine(delta_limit=-1, gamma_limit=1)
-
-    def test_protocol_examples_have_matching_identifiers(self) -> None:
-        request = hedging_pb2.HedgeRequest()
-        response = hedging_pb2.HedgeProposal()
-        json_format.Parse(REQUEST_PATH.read_text(encoding="utf-8"), request)
-        json_format.Parse(RESPONSE_PATH.read_text(encoding="utf-8"), response)
-
-        self.assertEqual(response.request_id, request.request_id)
-        self.assertEqual(
-            response.source_pricing_request_id, request.source_pricing_request_id
+    def test_breached_delta_and_gamma_route_to_multileg_dg(self) -> None:
+        instruments = (
+            _instrument("ALPHA", "CALL", 105, 1.0, 2.0),
+            _instrument("CALL", "CALL", 100, 0.0, 0.0, bid_size=0, ask_size=0),
+            _instrument("PUT", "PUT", 100, 0.0, 0.0, bid_size=0, ask_size=0),
+            _instrument("A", "CALL", 110, 0.4, 0.8, bid_size=1, ask_size=1),
+            _instrument("B", "CALL", 120, 0.3, 1.0, bid_size=1, ask_size=1),
+            _instrument("C", "CALL", 130, 0.3, 0.2, bid_size=1, ask_size=1),
         )
-        self.assertEqual(response.source_market_as_of, request.market_as_of)
-        self.assertEqual(
-            response.base_strategy_ledger_revision,
-            request.base_strategy_ledger_revision,
-        )
-        self.assertFalse(response.orders_generated)
-
-    def test_recorded_request_produces_an_incremental_proposal(self) -> None:
-        message = hedging_pb2.HedgeRequest()
-        json_format.Parse(REQUEST_PATH.read_text(encoding="utf-8"), message)
-
-        result = make_engine().propose(
-            request_from_proto(message), created_at=NOW
-        )
-
-        self.assertEqual(result.hedge_pair, ("CALL", "PUT"))
-        self.assertEqual(
-            result.proposal["incremental_trades"], {"CALL": 3, "PUT": 1}
-        )
-        self.assertEqual(
-            result.proposal["target_beta_positions"], {"CALL": 3, "PUT": 1}
-        )
-        self.assertFalse(result.proposal["orders_generated"])
-
-    def test_missing_held_instrument_greeks_are_rejected(self) -> None:
-        payload = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
-        payload["instruments"] = [
-            item for item in payload["instruments"] if item["instrument"] != "ALPHA"
-        ]
-        message = hedging_pb2.HedgeRequest()
-        json_format.ParseDict(payload, message)
-
-        with self.assertRaisesRegex(ValueError, "held positions.*ALPHA"):
-            make_engine().propose(
-                request_from_proto(message), created_at=NOW
+        result = ReferenceHedgeEngine(
+            config=dg_config(
+                delta_entry_risk_band=0.9,
+                delta_target_risk_band=0.01,
+                gamma_entry_risk_band=0.9,
+                gamma_target_risk_band=0.01,
             )
-    def test_zero_absolute_limits_trigger_delta_gamma_hedge(self) -> None:
-        engine = make_engine()
-        request = make_request()
+        ).propose(
+            make_request(alpha={"ALPHA": -1}, instruments=instruments,
+                         universe=("CALL", "PUT", "A", "B", "C")),
+            created_at=NOW,
+        )
+        trades = result.proposal["incremental_trades"]
+        self.assertGreaterEqual(len(trades), 3)
+        self.assertTrue(set(trades).issubset({"A", "B", "C"}))
+        self.assertLess(abs(result.risk_at_target_beta.delta), 1.0)
+        self.assertLess(abs(result.risk_at_target_beta.gamma), 1.0)
+        self.assertEqual(result.hedge_pair, tuple(sorted(trades)))
 
-        result = engine.propose(request, created_at=NOW)
+    def test_delta_only_breach_still_routes_to_dg(self) -> None:
+        config = dg_config(
+            gamma_entry_risk_band=2.0,
+            gamma_target_risk_band=1.5,
+        )
+        request = make_request(universe=("CALL", "PUT"))
+        result = ReferenceHedgeEngine(config=config).propose(request, created_at=NOW)
+        self.assertTrue(result.proposal["incremental_trades"])
+        self.assertLess(abs(result.risk_at_target_beta.delta), 1e-9)
 
+    def test_gamma_only_breach_still_routes_to_dg(self) -> None:
+        config = dg_config(
+            delta_entry_risk_band=100.0,
+            delta_target_risk_band=10.0,
+            gamma_entry_risk_band=0.75,
+            gamma_target_risk_band=0.1,
+        )
+
+        result = ReferenceHedgeEngine(config=config).propose(
+            make_request(), created_at=NOW
+        )
+
+        self.assertTrue(result.proposal["incremental_trades"])
+        self.assertLess(abs(result.risk_at_target_beta.gamma), 0.75)
+
+    def test_inside_bands_routes_to_stateless_msh_and_respects_depth(self) -> None:
+        request = make_request(
+            alpha={},
+            beta={"CALL": 200},
+            instruments=(_instrument(
+                "CALL", "CALL", 100, 0, 0, bid_size=1_000, ask_size=1_000
+            ),),
+            universe=("CALL",),
+        )
+        result = ReferenceHedgeEngine().propose(request, created_at=NOW)
+        self.assertEqual(result.proposal["incremental_trades"], {"CALL": -200})
+        self.assertEqual(result.proposal["target_beta_positions"], {})
+
+    def test_msh_does_not_migrate_without_displayed_sell_depth(self) -> None:
+        request = make_request(
+            alpha={},
+            beta={"CALL": 200},
+            instruments=(_instrument(
+                "CALL", "CALL", 100, 0, 0, bid_size=0, ask_size=1_000
+            ),),
+            universe=("CALL",),
+        )
+        result = ReferenceHedgeEngine().propose(request, created_at=NOW)
+        self.assertEqual(result.proposal["incremental_trades"], {})
+
+    def test_execution_diagnostics_explain_cost_depth_and_margin(self) -> None:
+        request = make_request(
+            alpha={},
+            beta={"CALL": -200},
+            instruments=(_instrument(
+                "CALL", "CALL", 100, 0, 0, bid=0.9, ask=1.1,
+                bid_size=800, ask_size=1_000,
+            ),),
+            universe=("CALL",),
+        )
+
+        result = ReferenceHedgeEngine().propose(request, created_at=NOW)
+
+        diagnostics = result.execution_diagnostics
+        self.assertEqual(result.proposal["incremental_trades"], {"CALL": 200})
+        self.assertAlmostEqual(diagnostics.estimated_transaction_cost, 420.0)
+        self.assertAlmostEqual(diagnostics.estimated_short_margin_before, 2_600.0)
+        self.assertAlmostEqual(diagnostics.estimated_short_margin_after, 0.0)
+        self.assertAlmostEqual(diagnostics.short_margin_limit, 70_000_000.0)
+        self.assertEqual(len(diagnostics.legs), 1)
+        leg = diagnostics.legs[0]
         self.assertEqual(
-            result.proposal["incremental_trades"],
-            {"CALL": 3, "PUT": 1},
+            (leg.instrument, leg.side, leg.signed_quantity, leg.displayed_size),
+            ("CALL", "BUY", 200, 1_000),
         )
-        self.assertEqual(result.hedge_pair, ("CALL", "PUT"))
+        self.assertEqual(leg.displayed_depth_limit, 500)
+        self.assertAlmostEqual(leg.estimated_transaction_cost, 420.0)
+        self.assertAlmostEqual(leg.short_margin_per_contract, 13.0)
 
-
-    def test_portfolio_inside_absolute_limits_needs_no_trade(self) -> None:
-        engine = ReferenceHedgeEngine(
-            delta_limit=10.0,
-            gamma_limit=10.0,
-        )
-        request = make_request()
-
-        result = engine.propose(request, created_at=NOW)
-
-        # Current portfolio Delta = -2
-        # Current portfolio Gamma = -4
-        #
-        # Both are inside manually supplied limits.
-        self.assertEqual(result.proposal["incremental_trades"], {})
-        self.assertEqual(result.hedge_pair, ())
-        self.assertEqual(result.risk_at_target_beta, result.portfolio_risk)
-
-
-    def test_gamma_outside_its_absolute_limit_triggers_hedge(self) -> None:
-        engine = ReferenceHedgeEngine(
-            delta_limit=10.0,
-            gamma_limit=1.0,
-        )
-        request = make_request()
-
-        result = engine.propose(request, created_at=NOW)
-
-        # Delta is safe under manual limit:
-        # |-2| < 10
-        #
-        # Gamma is outside its explicit absolute limit.
-        self.assertEqual(
-            result.proposal["incremental_trades"],
-            {"CALL": 3, "PUT": 1},
-        )
-
-
-    def test_delta_outside_its_absolute_limit_triggers_hedge(self) -> None:
-        engine = ReferenceHedgeEngine(
-            delta_limit=1.0,
-            gamma_limit=10.0,
-        )
-        request = make_request()
-
-        result = engine.propose(request, created_at=NOW)
-
-        # Gamma is safe under manual limit:
-        # |-4| < 10
-        #
-        # Delta is outside its explicit absolute limit.
-        self.assertEqual(
-            result.proposal["incremental_trades"],
-            {"CALL": 3, "PUT": 1},
-        )
-
-
-    def test_risk_exactly_on_limits_does_not_trigger_hedge(self) -> None:
-        engine = ReferenceHedgeEngine(
-            delta_limit=2.0,
-            gamma_limit=4.0,
-        )
-        request = make_request()
-
-        result = engine.propose(request, created_at=NOW)
-
-        # Breach condition uses ">", not ">=".
-        self.assertEqual(result.proposal["incremental_trades"], {})
-        self.assertEqual(result.hedge_pair, ())
-
-
-    def test_zero_limits_trigger_on_any_nonzero_risk(self) -> None:
-        engine = ReferenceHedgeEngine(
-            delta_limit=0.0,
-            gamma_limit=0.0,
-        )
-        request = make_request()
-
-        result = engine.propose(request, created_at=NOW)
-
-        self.assertEqual(
-            result.proposal["incremental_trades"],
-            {"CALL": 3, "PUT": 1},
-        )
-
-
-    def test_empty_alpha_and_beta_require_no_hedge(self) -> None:
-        engine = make_engine()
-        request = make_request(
-            alpha_positions={},
-            beta_positions={},
-        )
-
-        result = engine.propose(request, created_at=NOW)
-
-        self.assertEqual(result.portfolio_risk.delta, 0.0)
-        self.assertEqual(result.portfolio_risk.gamma, 0.0)
-        self.assertEqual(result.proposal["incremental_trades"], {})
-        self.assertEqual(result.hedge_pair, ())
-
-
-    def test_existing_beta_can_put_portfolio_on_target(self) -> None:
-        engine = make_engine()
-
-        request = make_request(
-            beta_positions={
-                "CALL": 3,
-                "PUT": 1,
-            },
-        )
-
-        result = engine.propose(request, created_at=NOW)
-
-        # Alpha:
-        #   Delta = -2
-        #   Gamma = -4
-        #
-        # Beta:
-        #   3 CALL + 1 PUT
-        #   Delta = 3 - 1 = +2
-        #   Gamma = 3 + 1 = +4
-        #
-        # Portfolio is exactly neutral.
-        self.assertAlmostEqual(result.portfolio_risk.delta, 0.0)
-        self.assertAlmostEqual(result.portfolio_risk.gamma, 0.0)
-
-        self.assertEqual(result.proposal["incremental_trades"], {})
-        self.assertEqual(result.hedge_pair, ())
-
-
-    def test_safe_portfolio_does_not_require_valid_hedge_pair(self) -> None:
-        engine = make_engine()
-
-        request = make_request(
-            alpha_positions={},
-            beta_positions={},
-            hedge_universe=("CALL",),
-        )
-
-        # There is no usable CALL/PUT pair.
-        #
-        # But because portfolio risk is already safe,
-        # _select_pair() should never be called.
-        result = engine.propose(request, created_at=NOW)
-
-        self.assertEqual(result.proposal["incremental_trades"], {})
-        self.assertEqual(result.hedge_pair, ())
-
-
-    def test_breached_portfolio_requires_valid_hedge_pair(self) -> None:
-        engine = make_engine()
-
-        request = make_request(
-            hedge_universe=("CALL",),
-        )
-
-        # Risk is breached, therefore D/G hedging is required.
-        # But only a CALL is available, so no valid D/G pair exists.
-        with self.assertRaisesRegex(
-            ValueError,
-            "singular Delta/Gamma matrix",
-        ):
-            engine.propose(request, created_at=NOW)
-
-    def test_alpha_instrument_can_be_a_bounded_beta_hedge_leg(self) -> None:
-        request = make_request(
-            alpha_positions={"ALPHA": -10},
-            hedge_universe=("ALPHA", "CALL", "PUT"),
-        )
-
-        result = make_engine().propose(request, created_at=NOW)
-
-        target = result.proposal["target_beta_positions"]
-        self.assertIn("ALPHA", target)
-        self.assertLessEqual(abs(target["ALPHA"]), 3)
-        self.assertGreater(len(result.proposal["incremental_trades"]), 2)
-
-    def test_rejects_existing_alpha_beta_overlap_above_limit(self) -> None:
-        request = make_request(
-            alpha_positions={"ALPHA": -10},
-            beta_positions={"ALPHA": 4},
-            hedge_universe=("ALPHA", "CALL", "PUT"),
-        )
-
+    def test_alpha_beta_overlap_above_thirty_percent_is_rejected(self) -> None:
+        request = make_request(alpha={"ALPHA": -10}, beta={"ALPHA": 4})
         with self.assertRaisesRegex(ValueError, "exceeds 30%"):
-            make_engine().propose(request, created_at=NOW)
+            ReferenceHedgeEngine(config=dg_config()).propose(request, created_at=NOW)
 
-    def test_hedges_to_nonzero_delta_gamma_targets(self) -> None:
-        request = make_request(alpha_positions={"ALPHA": -1000})
-        engine = ReferenceHedgeEngine(
-            delta_limit=2000,
-            gamma_limit=100,
-            target_delta=5000,
-            target_gamma=0,
+    def test_mixed_contract_multipliers_are_rejected(self) -> None:
+        instruments = (
+            _instrument("A", "CALL", 100, 0.5, 0.1, multiplier=1),
+            _instrument("B", "PUT", 100, -0.5, 0.1, multiplier=10_000),
         )
+        request = make_request(alpha={}, instruments=instruments, universe=("A", "B"))
+        with self.assertRaisesRegex(ValueError, "multipliers must be uniform"):
+            ReferenceHedgeEngine().propose(request, created_at=NOW)
 
-        result = engine.propose(request, created_at=NOW)
-
-        self.assertAlmostEqual(result.risk_at_target_beta.delta, 5000)
-        self.assertAlmostEqual(result.risk_at_target_beta.gamma, 0)
-
-    def test_deviation_inside_target_centered_band_needs_no_trade(self) -> None:
-        request = make_request()
-        engine = ReferenceHedgeEngine(
-            delta_limit=2,
-            gamma_limit=2,
-            target_delta=-1,
-            target_gamma=-3,
+    def test_short_held_position_requires_live_quote_for_margin(self) -> None:
+        unquoted = HedgeInstrument(
+            "ALPHA", "CALL", 105, 1, 2, 2, 0, 0,
         )
+        request = make_request(alpha={"ALPHA": -1}, instruments=(unquoted,), universe=())
+        with self.assertRaisesRegex(ValueError, "live two-sided quote.*ALPHA"):
+            ReferenceHedgeEngine(config=dg_config()).propose(request, created_at=NOW)
 
-        result = engine.propose(request, created_at=NOW)
-
-        self.assertEqual(result.proposal["incremental_trades"], {})
-        self.assertEqual(result.risk_at_target_beta, result.portfolio_risk)
-
+    def test_proposal_identity_and_gamma_improvement(self) -> None:
+        result = ReferenceHedgeEngine().propose(
+            make_request(alpha={}, beta={}), created_at=NOW
+        )
+        self.assertEqual(result.proposal["source_pricing_request_id"], "pricing-test")
+        self.assertEqual(result.proposal["base_strategy_ledger_revision"], 1)
+        self.assertEqual(result.gamma_improvement, 0.0)
+        self.assertFalse(result.proposal["orders_generated"])
 
 
 if __name__ == "__main__":

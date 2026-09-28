@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from numbers import Integral
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,8 @@ class MarketQuote:
     ask: float | None
     previous_close: float | None = None
     previous_settlement: float | None = None
+    bid_size: int | None = None
+    ask_size: int | None = None
 
     def __post_init__(self) -> None:
         if not self.instrument:
@@ -33,5 +36,11 @@ class MarketQuote:
             raise ValueError("previous_close must be positive when present")
         if self.previous_settlement is not None and self.previous_settlement <= 0:
             raise ValueError("previous_settlement must be positive when present")
+        for name in ("bid_size", "ask_size"):
+            size = getattr(self, name)
+            if size is not None and (
+                isinstance(size, bool) or not isinstance(size, Integral) or size < 0
+            ):
+                raise ValueError(f"{name} must be a nonnegative integer when present")
         if self.last is None and self.bid is None and self.ask is None:
             raise ValueError("quote must contain at least one valid price")

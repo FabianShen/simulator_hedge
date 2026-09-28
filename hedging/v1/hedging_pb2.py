@@ -26,13 +26,17 @@ from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18hedging/v1/hedging.proto\x12\x14sim_hedge.hedging.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"z\n\x0eHealthResponse\x12\x13\n\x0b\x65ngine_name\x18\x01 \x01(\t\x12\x16\n\x0e\x65ngine_version\x18\x02 \x01(\t\x12\x18\n\x10protocol_version\x18\x03 \x01(\t\x12!\n\x19proposal_protocol_version\x18\x04 \x01(\t\"\xe4\x01\n\x0eInstrumentRisk\x12\x12\n\ninstrument\x18\x01 \x01(\t\x12\x35\n\x0boption_type\x18\x02 \x01(\x0e\x32 .sim_hedge.hedging.v1.OptionType\x12\x0e\n\x06strike\x18\x03 \x01(\x01\x12\x1b\n\x13\x63ontract_multiplier\x18\x04 \x01(\x05\x12\r\n\x05\x64\x65lta\x18\x05 \x01(\x01\x12\r\n\x05gamma\x18\x06 \x01(\x01\x12\x16\n\x0etheta_per_year\x18\x07 \x01(\x01\x12$\n\x1cvega_per_absolute_volatility\x18\x08 \x01(\x01\"E\n\x12HedgeConfiguration\x12/\n\x05model\x18\x01 \x01(\x0e\x32 .sim_hedge.hedging.v1.HedgeModel\"\x99\x05\n\x0cHedgeRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12!\n\x19source_pricing_request_id\x18\x02 \x01(\t\x12\x30\n\x0cmarket_as_of\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\naccount_id\x18\x04 \x01(\t\x12%\n\x1d\x62\x61se_strategy_ledger_revision\x18\x05 \x01(\x03\x12\x0c\n\x04spot\x18\x06 \x01(\x01\x12\x39\n\x0binstruments\x18\x07 \x03(\x0b\x32$.sim_hedge.hedging.v1.InstrumentRisk\x12\x62\n\x19\x63onfirmed_alpha_positions\x18\x08 \x03(\x0b\x32?.sim_hedge.hedging.v1.HedgeRequest.ConfirmedAlphaPositionsEntry\x12`\n\x18\x63onfirmed_beta_positions\x18\t \x03(\x0b\x32>.sim_hedge.hedging.v1.HedgeRequest.ConfirmedBetaPositionsEntry\x12\x16\n\x0ehedge_universe\x18\n \x03(\t\x12?\n\rconfiguration\x18\x0b \x01(\x0b\x32(.sim_hedge.hedging.v1.HedgeConfiguration\x1a>\n\x1c\x43onfirmedAlphaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\x1a=\n\x1b\x43onfirmedBetaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\"C\n\x06Greeks\x12\r\n\x05\x64\x65lta\x18\x01 \x01(\x01\x12\r\n\x05gamma\x18\x02 \x01(\x01\x12\x0c\n\x04vega\x18\x03 \x01(\x01\x12\r\n\x05theta\x18\x04 \x01(\x01\"\xd3\x08\n\rHedgeProposal\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x18\n\x10protocol_version\x18\x02 \x01(\t\x12\x13\n\x0bproposal_id\x18\x03 \x01(\t\x12\x15\n\rproposal_type\x18\x04 \x01(\t\x12.\n\ncreated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12!\n\x19source_pricing_request_id\x18\x06 \x01(\t\x12\x12\n\naccount_id\x18\x07 \x01(\t\x12%\n\x1d\x62\x61se_strategy_ledger_revision\x18\x08 \x01(\x03\x12\x13\n\x0b\x65ngine_name\x18\t \x01(\t\x12\x16\n\x0e\x65ngine_version\x18\n \x01(\t\x12\x61\n\x18\x63onfirmed_beta_positions\x18\x0b \x03(\x0b\x32?.sim_hedge.hedging.v1.HedgeProposal.ConfirmedBetaPositionsEntry\x12V\n\x12incremental_trades\x18\x0c \x03(\x0b\x32:.sim_hedge.hedging.v1.HedgeProposal.IncrementalTradesEntry\x12[\n\x15target_beta_positions\x18\r \x03(\x0b\x32<.sim_hedge.hedging.v1.HedgeProposal.TargetBetaPositionsEntry\x12\x18\n\x10orders_generated\x18\x0e \x01(\x08\x12\x12\n\nhedge_pair\x18\x0f \x03(\t\x12\x30\n\nalpha_risk\x18\x10 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x39\n\x13\x63onfirmed_beta_risk\x18\x11 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x34\n\x0eportfolio_risk\x18\x12 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x39\n\x13risk_at_target_beta\x18\x13 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x1b\n\x13normalized_residual\x18\x14 \x01(\x01\x12\x37\n\x13source_market_as_of\x18\x15 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x1a=\n\x1b\x43onfirmedBetaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\x1a\x38\n\x16IncrementalTradesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\x1a:\n\x18TargetBetaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01*T\n\nOptionType\x12\x1b\n\x17OPTION_TYPE_UNSPECIFIED\x10\x00\x12\x14\n\x10OPTION_TYPE_CALL\x10\x01\x12\x13\n\x0fOPTION_TYPE_PUT\x10\x02*R\n\nHedgeModel\x12\x1b\n\x17HEDGE_MODEL_UNSPECIFIED\x10\x00\x12\'\n#HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR\x10\x01\x32\xaa\x01\n\x0cHedgeService\x12\x46\n\x06Health\x12\x16.google.protobuf.Empty\x1a$.sim_hedge.hedging.v1.HealthResponse\x12R\n\x07Propose\x12\".sim_hedge.hedging.v1.HedgeRequest\x1a#.sim_hedge.hedging.v1.HedgeProposalb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18hedging/v1/hedging.proto\x12\x14sim_hedge.hedging.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"z\n\x0eHealthResponse\x12\x13\n\x0b\x65ngine_name\x18\x01 \x01(\t\x12\x16\n\x0e\x65ngine_version\x18\x02 \x01(\t\x12\x18\n\x10protocol_version\x18\x03 \x01(\t\x12!\n\x19proposal_protocol_version\x18\x04 \x01(\t\"\xe0\x02\n\x0eInstrumentRisk\x12\x12\n\ninstrument\x18\x01 \x01(\t\x12\x35\n\x0boption_type\x18\x02 \x01(\x0e\x32 .sim_hedge.hedging.v1.OptionType\x12\x0e\n\x06strike\x18\x03 \x01(\x01\x12\x1b\n\x13\x63ontract_multiplier\x18\x04 \x01(\x05\x12\r\n\x05\x64\x65lta\x18\x05 \x01(\x01\x12\r\n\x05gamma\x18\x06 \x01(\x01\x12\x16\n\x0etheta_per_year\x18\x07 \x01(\x01\x12$\n\x1cvega_per_absolute_volatility\x18\x08 \x01(\x01\x12\x10\n\x03\x62id\x18\t \x01(\x01H\x00\x88\x01\x01\x12\x10\n\x03\x61sk\x18\n \x01(\x01H\x01\x88\x01\x01\x12\x15\n\x08\x62id_size\x18\x0b \x01(\x03H\x02\x88\x01\x01\x12\x15\n\x08\x61sk_size\x18\x0c \x01(\x03H\x03\x88\x01\x01\x42\x06\n\x04_bidB\x06\n\x04_askB\x0b\n\t_bid_sizeB\x0b\n\t_ask_size\"E\n\x12HedgeConfiguration\x12/\n\x05model\x18\x01 \x01(\x0e\x32 .sim_hedge.hedging.v1.HedgeModel\"\x99\x05\n\x0cHedgeRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12!\n\x19source_pricing_request_id\x18\x02 \x01(\t\x12\x30\n\x0cmarket_as_of\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\naccount_id\x18\x04 \x01(\t\x12%\n\x1d\x62\x61se_strategy_ledger_revision\x18\x05 \x01(\x03\x12\x0c\n\x04spot\x18\x06 \x01(\x01\x12\x39\n\x0binstruments\x18\x07 \x03(\x0b\x32$.sim_hedge.hedging.v1.InstrumentRisk\x12\x62\n\x19\x63onfirmed_alpha_positions\x18\x08 \x03(\x0b\x32?.sim_hedge.hedging.v1.HedgeRequest.ConfirmedAlphaPositionsEntry\x12`\n\x18\x63onfirmed_beta_positions\x18\t \x03(\x0b\x32>.sim_hedge.hedging.v1.HedgeRequest.ConfirmedBetaPositionsEntry\x12\x16\n\x0ehedge_universe\x18\n \x03(\t\x12?\n\rconfiguration\x18\x0b \x01(\x0b\x32(.sim_hedge.hedging.v1.HedgeConfiguration\x1a>\n\x1c\x43onfirmedAlphaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\x1a=\n\x1b\x43onfirmedBetaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\"C\n\x06Greeks\x12\r\n\x05\x64\x65lta\x18\x01 \x01(\x01\x12\r\n\x05gamma\x18\x02 \x01(\x01\x12\x0c\n\x04vega\x18\x03 \x01(\x01\x12\r\n\x05theta\x18\x04 \x01(\x01\"\x83\x02\n\x11HedgeExecutionLeg\x12\x12\n\ninstrument\x18\x01 \x01(\t\x12\x0c\n\x04side\x18\x02 \x01(\t\x12\x17\n\x0fsigned_quantity\x18\x03 \x01(\x12\x12\x1b\n\x0e\x64isplayed_size\x18\x04 \x01(\x03H\x00\x88\x01\x01\x12\"\n\x1a\x65stimated_transaction_cost\x18\x05 \x01(\x01\x12!\n\x19short_margin_per_contract\x18\x06 \x01(\x01\x12\"\n\x15\x64isplayed_depth_limit\x18\x07 \x01(\x03H\x01\x88\x01\x01\x42\x11\n\x0f_displayed_sizeB\x18\n\x16_displayed_depth_limit\"\xdf\x01\n\x19HedgeExecutionDiagnostics\x12\"\n\x1a\x65stimated_transaction_cost\x18\x01 \x01(\x01\x12%\n\x1d\x65stimated_short_margin_before\x18\x02 \x01(\x01\x12$\n\x1c\x65stimated_short_margin_after\x18\x03 \x01(\x01\x12\x1a\n\x12short_margin_limit\x18\x04 \x01(\x01\x12\x35\n\x04legs\x18\x05 \x03(\x0b\x32\'.sim_hedge.hedging.v1.HedgeExecutionLeg\"\xba\t\n\rHedgeProposal\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x18\n\x10protocol_version\x18\x02 \x01(\t\x12\x13\n\x0bproposal_id\x18\x03 \x01(\t\x12\x15\n\rproposal_type\x18\x04 \x01(\t\x12.\n\ncreated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12!\n\x19source_pricing_request_id\x18\x06 \x01(\t\x12\x12\n\naccount_id\x18\x07 \x01(\t\x12%\n\x1d\x62\x61se_strategy_ledger_revision\x18\x08 \x01(\x03\x12\x13\n\x0b\x65ngine_name\x18\t \x01(\t\x12\x16\n\x0e\x65ngine_version\x18\n \x01(\t\x12\x61\n\x18\x63onfirmed_beta_positions\x18\x0b \x03(\x0b\x32?.sim_hedge.hedging.v1.HedgeProposal.ConfirmedBetaPositionsEntry\x12V\n\x12incremental_trades\x18\x0c \x03(\x0b\x32:.sim_hedge.hedging.v1.HedgeProposal.IncrementalTradesEntry\x12[\n\x15target_beta_positions\x18\r \x03(\x0b\x32<.sim_hedge.hedging.v1.HedgeProposal.TargetBetaPositionsEntry\x12\x18\n\x10orders_generated\x18\x0e \x01(\x08\x12\x12\n\nhedge_pair\x18\x0f \x03(\t\x12\x30\n\nalpha_risk\x18\x10 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x39\n\x13\x63onfirmed_beta_risk\x18\x11 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x34\n\x0eportfolio_risk\x18\x12 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x39\n\x13risk_at_target_beta\x18\x13 \x01(\x0b\x32\x1c.sim_hedge.hedging.v1.Greeks\x12\x19\n\x11gamma_improvement\x18\x14 \x01(\x01\x12\x37\n\x13source_market_as_of\x18\x15 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12N\n\x15\x65xecution_diagnostics\x18\x16 \x01(\x0b\x32/.sim_hedge.hedging.v1.HedgeExecutionDiagnostics\x12\x17\n\x0f\x64\x65\x63ision_policy\x18\x17 \x01(\t\x1a=\n\x1b\x43onfirmedBetaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\x1a\x38\n\x16IncrementalTradesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01\x1a:\n\x18TargetBetaPositionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x12:\x02\x38\x01*T\n\nOptionType\x12\x1b\n\x17OPTION_TYPE_UNSPECIFIED\x10\x00\x12\x14\n\x10OPTION_TYPE_CALL\x10\x01\x12\x13\n\x0fOPTION_TYPE_PUT\x10\x02*{\n\nHedgeModel\x12\x1b\n\x17HEDGE_MODEL_UNSPECIFIED\x10\x00\x12\x1f\n\x1bHEDGE_MODEL_SCENARIO_ROUTED\x10\x01\x12+\n#HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR\x10\x01\x1a\x02\x08\x01\x1a\x02\x10\x01\x32\xaa\x01\n\x0cHedgeService\x12\x46\n\x06Health\x12\x16.google.protobuf.Empty\x1a$.sim_hedge.hedging.v1.HealthResponse\x12R\n\x07Propose\x12\".sim_hedge.hedging.v1.HedgeRequest\x1a#.sim_hedge.hedging.v1.HedgeProposalb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'hedging.v1.hedging_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
+  _globals['_HEDGEMODEL']._loaded_options = None
+  _globals['_HEDGEMODEL']._serialized_options = b'\020\001'
+  _globals['_HEDGEMODEL'].values_by_name["HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR"]._loaded_options = None
+  _globals['_HEDGEMODEL'].values_by_name["HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR"]._serialized_options = b'\010\001'
   _globals['_HEDGEREQUEST_CONFIRMEDALPHAPOSITIONSENTRY']._loaded_options = None
   _globals['_HEDGEREQUEST_CONFIRMEDALPHAPOSITIONSENTRY']._serialized_options = b'8\001'
   _globals['_HEDGEREQUEST_CONFIRMEDBETAPOSITIONSENTRY']._loaded_options = None
@@ -43,32 +47,36 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_HEDGEPROPOSAL_INCREMENTALTRADESENTRY']._serialized_options = b'8\001'
   _globals['_HEDGEPROPOSAL_TARGETBETAPOSITIONSENTRY']._loaded_options = None
   _globals['_HEDGEPROPOSAL_TARGETBETAPOSITIONSENTRY']._serialized_options = b'8\001'
-  _globals['_OPTIONTYPE']._serialized_start=2385
-  _globals['_OPTIONTYPE']._serialized_end=2469
-  _globals['_HEDGEMODEL']._serialized_start=2471
-  _globals['_HEDGEMODEL']._serialized_end=2553
+  _globals['_OPTIONTYPE']._serialized_start=3100
+  _globals['_OPTIONTYPE']._serialized_end=3184
+  _globals['_HEDGEMODEL']._serialized_start=3186
+  _globals['_HEDGEMODEL']._serialized_end=3309
   _globals['_HEALTHRESPONSE']._serialized_start=112
   _globals['_HEALTHRESPONSE']._serialized_end=234
   _globals['_INSTRUMENTRISK']._serialized_start=237
-  _globals['_INSTRUMENTRISK']._serialized_end=465
-  _globals['_HEDGECONFIGURATION']._serialized_start=467
-  _globals['_HEDGECONFIGURATION']._serialized_end=536
-  _globals['_HEDGEREQUEST']._serialized_start=539
-  _globals['_HEDGEREQUEST']._serialized_end=1204
-  _globals['_HEDGEREQUEST_CONFIRMEDALPHAPOSITIONSENTRY']._serialized_start=1079
-  _globals['_HEDGEREQUEST_CONFIRMEDALPHAPOSITIONSENTRY']._serialized_end=1141
-  _globals['_HEDGEREQUEST_CONFIRMEDBETAPOSITIONSENTRY']._serialized_start=1143
-  _globals['_HEDGEREQUEST_CONFIRMEDBETAPOSITIONSENTRY']._serialized_end=1204
-  _globals['_GREEKS']._serialized_start=1206
-  _globals['_GREEKS']._serialized_end=1273
-  _globals['_HEDGEPROPOSAL']._serialized_start=1276
-  _globals['_HEDGEPROPOSAL']._serialized_end=2383
-  _globals['_HEDGEPROPOSAL_CONFIRMEDBETAPOSITIONSENTRY']._serialized_start=1143
-  _globals['_HEDGEPROPOSAL_CONFIRMEDBETAPOSITIONSENTRY']._serialized_end=1204
-  _globals['_HEDGEPROPOSAL_INCREMENTALTRADESENTRY']._serialized_start=2267
-  _globals['_HEDGEPROPOSAL_INCREMENTALTRADESENTRY']._serialized_end=2323
-  _globals['_HEDGEPROPOSAL_TARGETBETAPOSITIONSENTRY']._serialized_start=2325
-  _globals['_HEDGEPROPOSAL_TARGETBETAPOSITIONSENTRY']._serialized_end=2383
-  _globals['_HEDGESERVICE']._serialized_start=2556
-  _globals['_HEDGESERVICE']._serialized_end=2726
+  _globals['_INSTRUMENTRISK']._serialized_end=589
+  _globals['_HEDGECONFIGURATION']._serialized_start=591
+  _globals['_HEDGECONFIGURATION']._serialized_end=660
+  _globals['_HEDGEREQUEST']._serialized_start=663
+  _globals['_HEDGEREQUEST']._serialized_end=1328
+  _globals['_HEDGEREQUEST_CONFIRMEDALPHAPOSITIONSENTRY']._serialized_start=1203
+  _globals['_HEDGEREQUEST_CONFIRMEDALPHAPOSITIONSENTRY']._serialized_end=1265
+  _globals['_HEDGEREQUEST_CONFIRMEDBETAPOSITIONSENTRY']._serialized_start=1267
+  _globals['_HEDGEREQUEST_CONFIRMEDBETAPOSITIONSENTRY']._serialized_end=1328
+  _globals['_GREEKS']._serialized_start=1330
+  _globals['_GREEKS']._serialized_end=1397
+  _globals['_HEDGEEXECUTIONLEG']._serialized_start=1400
+  _globals['_HEDGEEXECUTIONLEG']._serialized_end=1659
+  _globals['_HEDGEEXECUTIONDIAGNOSTICS']._serialized_start=1662
+  _globals['_HEDGEEXECUTIONDIAGNOSTICS']._serialized_end=1885
+  _globals['_HEDGEPROPOSAL']._serialized_start=1888
+  _globals['_HEDGEPROPOSAL']._serialized_end=3098
+  _globals['_HEDGEPROPOSAL_CONFIRMEDBETAPOSITIONSENTRY']._serialized_start=1267
+  _globals['_HEDGEPROPOSAL_CONFIRMEDBETAPOSITIONSENTRY']._serialized_end=1328
+  _globals['_HEDGEPROPOSAL_INCREMENTALTRADESENTRY']._serialized_start=2982
+  _globals['_HEDGEPROPOSAL_INCREMENTALTRADESENTRY']._serialized_end=3038
+  _globals['_HEDGEPROPOSAL_TARGETBETAPOSITIONSENTRY']._serialized_start=3040
+  _globals['_HEDGEPROPOSAL_TARGETBETAPOSITIONSENTRY']._serialized_end=3098
+  _globals['_HEDGESERVICE']._serialized_start=3312
+  _globals['_HEDGESERVICE']._serialized_end=3482
 # @@protoc_insertion_point(module_scope)

@@ -25,6 +25,7 @@ from sim_hedge.jsonio import (
     require_object as _object,
     write_json as _write,
 )
+from hedge_engine.config import HedgeConfig
 
 
 def main() -> None:
@@ -34,10 +35,17 @@ def main() -> None:
     parser.add_argument("strategy_ledger")
     parser.add_argument("--output", default="outputs/hedge_plan.json")
     parser.add_argument("--max-market-age", type=float, default=10.0)
-    parser.add_argument("--delta-limit", type=float, required=True)
-    parser.add_argument("--gamma-limit", type=float, required=True)
-    parser.add_argument("--target-delta", type=float, default=0.0)
-    parser.add_argument("--target-gamma", type=float, default=0.0)
+    parser.add_argument("--capital", type=float, default=100_000_000.0)
+    parser.add_argument(
+        "--delta-entry-risk-band", "--delta-limit", dest="delta_entry_risk_band",
+        type=float, default=30_000.0,
+    )
+    parser.add_argument("--delta-target-risk-band", type=float, default=10_000.0)
+    parser.add_argument(
+        "--gamma-entry-risk-band", "--gamma-limit", dest="gamma_entry_risk_band",
+        type=float, default=10_000.0,
+    )
+    parser.add_argument("--gamma-target-risk-band", type=float, default=10_000.0)
     args = parser.parse_args()
     try:
         pricing_payload = _object(_read(args.pricing_request), "pricing request")
@@ -49,10 +57,13 @@ def main() -> None:
             portfolio_payload,
             ledger_payload,
             max_market_age_seconds=args.max_market_age,
-            delta_limit=args.delta_limit,
-            gamma_limit=args.gamma_limit,
-            target_delta=args.target_delta,
-            target_gamma=args.target_gamma,
+            capital=args.capital,
+            config=HedgeConfig(
+                delta_entry_risk_band=args.delta_entry_risk_band,
+                delta_target_risk_band=args.delta_target_risk_band,
+                gamma_entry_risk_band=args.gamma_entry_risk_band,
+                gamma_target_risk_band=args.gamma_target_risk_band,
+            ),
         )
         output = {
             **result.proposal,
@@ -67,7 +78,9 @@ def main() -> None:
                 "before_hedge": asdict(result.portfolio_risk),
             },
             "risk_at_target_beta": asdict(result.risk_at_target_beta),
-            "normalized_residual": result.normalized_residual,
+            "gamma_improvement": result.gamma_improvement,
+            "decision_policy": result.decision_policy,
+            "execution_diagnostics": asdict(result.execution_diagnostics),
         }
         _write(args.output, output)
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
@@ -103,10 +116,8 @@ def build_offline_hedge_decision(
     ledger_payload: Mapping[str, Any],
     *,
     max_market_age_seconds: float = 10.0,
-    delta_limit: float,
-    gamma_limit: float,
-    target_delta: float = 0.0,
-    target_gamma: float = 0.0,
+    config: HedgeConfig | None = None,
+    capital: float = 100_000_000.0,
 ):
     if ledger_payload.get("status") != "CONFIRMED":
         raise ValueError("strategy ledger must contain confirmed fills")
@@ -206,6 +217,16 @@ def build_offline_hedge_decision(
                 gamma=float(results[instrument].gamma),
                 theta=float(results[instrument].theta_per_year),
                 vega=float(results[instrument].vega_per_absolute_volatility),
+                bid=(float(option["bid"]) if option.get("bid") is not None else None),
+                ask=(float(option["ask"]) if option.get("ask") is not None else None),
+                bid_size=(
+                    _integer_quantity(option["bidSize"], f"bid size for {instrument}")
+                    if option.get("bidSize") is not None else None
+                ),
+                ask_size=(
+                    _integer_quantity(option["askSize"], f"ask size for {instrument}")
+                    if option.get("askSize") is not None else None
+                ),
             )
             for instrument, option in valid_metadata.items()
         ),
@@ -213,12 +234,7 @@ def build_offline_hedge_decision(
         confirmed_beta_positions=context.beta_positions,
         hedge_universe=context.hedge_universe,
     )
-    result = ReferenceHedgeEngine(
-        delta_limit=delta_limit,
-        gamma_limit=gamma_limit,
-        target_delta=target_delta,
-        target_gamma=target_gamma,
-    ).propose(
+    result = ReferenceHedgeEngine(config=config, capital=capital).propose(
         request, created_at=datetime.now(timezone.utc)
     )
     return result, context, pricing_exclusions

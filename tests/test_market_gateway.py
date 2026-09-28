@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from hedge_engine import ConfirmedFill, apply_confirmed_fills, empty_ledger
+from hedge_engine.config import HedgeConfig
 from hedge_service import ReferenceHedgeEngine
 from hedge_service.grpc_server import create_server
 from sim_hedge import __main__ as gateway
@@ -91,7 +92,7 @@ class MarketGatewayHedgeBoundaryTests(unittest.TestCase):
     def test_successful_service_proposal_is_published_without_recalculation(self) -> None:
         server, port = create_server(
             "127.0.0.1:0",
-            engine=ReferenceHedgeEngine(delta_limit=0.0, gamma_limit=0.0),
+            engine=ReferenceHedgeEngine(config=_dg_config()),
             clock=lambda: NOW,
         )
         server.start()
@@ -104,8 +105,15 @@ class MarketGatewayHedgeBoundaryTests(unittest.TestCase):
         self.assertEqual(risk["source_pricing_request_id"], "pricing-1")
         self.assertEqual(risk["source_market_as_of"], NOW.isoformat())
         self.assertEqual(risk["base_strategy_ledger_revision"], 1)
-        self.assertEqual(risk["incremental_trades"], {"CALL": 3, "PUT": 1})
-        self.assertEqual(risk["target_beta_positions"], {"CALL": 3, "PUT": 1})
+        self.assertEqual(risk["incremental_trades"], {"A": 1, "B": 1, "C": 1})
+        self.assertEqual(risk["target_beta_positions"], {"A": 1, "B": 1, "C": 1})
+        self.assertEqual(
+            {leg["instrument"] for leg in risk["execution_diagnostics"]["legs"]},
+            {"A", "B", "C"},
+        )
+        self.assertIn(
+            "estimated_short_margin_before", risk["execution_diagnostics"]
+        )
         self.assertFalse(risk["orders_generated"])
         self.assertIn("pricing_calculated_at", risk)
         self.assertIn("published_at", risk)
@@ -113,7 +121,7 @@ class MarketGatewayHedgeBoundaryTests(unittest.TestCase):
     def test_no_trade_service_proposal_is_published_unchanged(self) -> None:
         server, port = create_server(
             "127.0.0.1:0",
-            engine=ReferenceHedgeEngine(delta_limit=1e9, gamma_limit=1e9),
+            engine=ReferenceHedgeEngine(),
             clock=lambda: NOW,
         )
         server.start()
@@ -190,8 +198,10 @@ def _ledger():
 
 def _request() -> dict:
     def option(instrument, option_type, strike):
+        depth = 0 if instrument in {"CALL", "PUT"} else 1
         result = {"instrument": instrument, "optionType": option_type, "strike": strike,
-                  "contractMultiplier": 1}
+                  "contractMultiplier": 1, "bid": 0.1, "ask": 0.1,
+                  "bidSize": depth, "askSize": depth}
         if instrument != "ALPHA":
             result["marketPrice"] = 0.1
         return result
@@ -200,7 +210,10 @@ def _request() -> dict:
         "underlying": {"instrument": "ETF", "spot": 3.3},
         "options": [option("ALPHA", "OPTION_TYPE_CALL", 3.4),
                     option("CALL", "OPTION_TYPE_CALL", 3.3),
-                    option("PUT", "OPTION_TYPE_PUT", 3.3)],
+                    option("PUT", "OPTION_TYPE_PUT", 3.3),
+                    option("A", "OPTION_TYPE_CALL", 3.4),
+                    option("B", "OPTION_TYPE_CALL", 3.5),
+                    option("C", "OPTION_TYPE_CALL", 3.6)],
     }
 
 
@@ -211,7 +224,24 @@ def _pricing() -> PricingBatch:
     return PricingBatch(
         "pricing-1", NOW, "pricing", "1", "SABR_BLACK_76",
         SabrFit(3.3, 0.3, 0.5, 0.8, -0.2, 0.001, 3),
-        (valuation("ALPHA", 2, 4), valuation("CALL", 1, 1), valuation("PUT", -1, 1)),
+        (
+            valuation("ALPHA", 1, 2),
+            valuation("CALL", 0, 0),
+            valuation("PUT", 0, 0),
+            valuation("A", 0.4, 0.8),
+            valuation("B", 0.3, 1.0),
+            valuation("C", 0.3, 0.2),
+        ),
+    )
+
+
+def _dg_config() -> HedgeConfig:
+    return HedgeConfig(
+        option_fee=0.0,
+        delta_entry_risk_band=0.03,
+        delta_target_risk_band=0.0001,
+        gamma_entry_risk_band=0.001,
+        gamma_target_risk_band=0.00001,
     )
 
 

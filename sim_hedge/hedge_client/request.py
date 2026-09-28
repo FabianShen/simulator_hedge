@@ -61,6 +61,7 @@ def build_hedge_request(
                 "optionType": str(option.get("optionType") or ""),
                 "strike": option.get("strike"),
                 "contractMultiplier": option.get("contractMultiplier"),
+                **_book_fields(option),
                 "delta": result.delta,
                 "gamma": result.gamma,
                 "thetaPerYear": result.theta_per_year,
@@ -100,5 +101,14 @@ def build_hedge_request(
         "confirmedAlphaPositions": dict(ledger.alpha_positions),
         "confirmedBetaPositions": dict(ledger.beta_positions),
         "hedgeUniverse": hedge_universe,
-        "configuration": {"model": "HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR"},
+        "configuration": {"model": "HEDGE_MODEL_SCENARIO_ROUTED"},
     }
+
+
+def _book_fields(option: Mapping[str, Any]) -> dict[str, float | int]:
+    fields: dict[str, float | int] = {}
+    for key in ("bid", "ask", "bidSize", "askSize"):
+        value = option.get(key)
+        if value is not None:
+            fields[key] = value
+    return fields

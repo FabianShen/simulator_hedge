@@ -20,8 +20,8 @@ PROTOCOL_VERSION = "hedging.v1"
 
 
 def request_from_proto(request: hedging_pb2.HedgeRequest) -> HedgeRequest:
-    if request.configuration.model != hedging_pb2.HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR:
-        raise ValueError("only the Delta/Gamma hedge model is supported")
+    if request.configuration.model != hedging_pb2.HEDGE_MODEL_SCENARIO_ROUTED:
+        raise ValueError("only the scenario-routed hedge model is supported")
     if not request.HasField("market_as_of"):
         raise ValueError("market_as_of is required")
     return HedgeRequest(
@@ -41,6 +41,10 @@ def request_from_proto(request: hedging_pb2.HedgeRequest) -> HedgeRequest:
                 gamma=item.gamma,
                 theta=item.theta_per_year,
                 vega=item.vega_per_absolute_volatility,
+                bid=item.bid if item.HasField("bid") else None,
+                ask=item.ask if item.HasField("ask") else None,
+                bid_size=item.bid_size if item.HasField("bid_size") else None,
+                ask_size=item.ask_size if item.HasField("ask_size") else None,
             )
             for item in request.instruments
         ),
@@ -71,7 +75,8 @@ def response_to_proto(
         target_beta_positions=proposal["target_beta_positions"],
         orders_generated=False,
         hedge_pair=result.hedge_pair,
-        normalized_residual=result.normalized_residual,
+        gamma_improvement=result.gamma_improvement,
+        decision_policy=result.decision_policy,
     )
     created_at = datetime.fromisoformat(str(proposal["created_at"]))
     message.created_at.FromDatetime(created_at.astimezone(timezone.utc))
@@ -82,6 +87,29 @@ def response_to_proto(
     _set_greeks(message.confirmed_beta_risk, result.confirmed_beta_risk)
     _set_greeks(message.portfolio_risk, result.portfolio_risk)
     _set_greeks(message.risk_at_target_beta, result.risk_at_target_beta)
+    diagnostics = result.execution_diagnostics
+    message.execution_diagnostics.estimated_transaction_cost = (
+        diagnostics.estimated_transaction_cost
+    )
+    message.execution_diagnostics.estimated_short_margin_before = (
+        diagnostics.estimated_short_margin_before
+    )
+    message.execution_diagnostics.estimated_short_margin_after = (
+        diagnostics.estimated_short_margin_after
+    )
+    message.execution_diagnostics.short_margin_limit = diagnostics.short_margin_limit
+    for leg in diagnostics.legs:
+        output = message.execution_diagnostics.legs.add(
+            instrument=leg.instrument,
+            side=leg.side,
+            signed_quantity=leg.signed_quantity,
+            estimated_transaction_cost=leg.estimated_transaction_cost,
+            short_margin_per_contract=leg.short_margin_per_contract,
+        )
+        if leg.displayed_size is not None:
+            output.displayed_size = leg.displayed_size
+        if leg.displayed_depth_limit is not None:
+            output.displayed_depth_limit = leg.displayed_depth_limit
     return message
 
 

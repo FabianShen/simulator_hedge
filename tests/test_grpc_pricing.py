@@ -48,6 +48,9 @@ class GrpcPricingIntegrationTests(unittest.TestCase):
 
     def test_grpc_matches_direct_engine(self) -> None:
         payload = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
+        payload["options"][0].update(
+            {"bid": 0.09, "ask": 0.11, "bidSize": 12, "askSize": 15}
+        )
         direct = SabrPricingEngine().price(load_request(REQUEST_PATH))
 
         with GrpcPricingClient(self.target) as client:

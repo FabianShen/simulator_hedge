@@ -5,7 +5,9 @@ description = "A live option hedge simulation and trading engine."
 requires-python = ">=3.12"
 dependencies = [
     "grpcio==1.76.0",
+    "numpy>=1.26",
     "protobuf==6.33.6",
+    "scipy>=1.11",
     "websocket-client==1.9.0",
 ]
 

@@ -10,39 +10,93 @@
       "instrument": "ALPHA",
       "optionType": "OPTION_TYPE_CALL",
       "strike": 3.4,
-      "contractMultiplier": 1,
-      "delta": 2.0,
-      "gamma": 4.0,
+      "contractMultiplier": 10000,
+      "delta": 1.0,
+      "gamma": 2.0,
       "thetaPerYear": -0.1,
-      "vegaPerAbsoluteVolatility": 0.2
+      "vegaPerAbsoluteVolatility": 0.2,
+      "bid": 0.1,
+      "ask": 0.1,
+      "bidSize": "1",
+      "askSize": "1"
     },
     {
       "instrument": "CALL",
       "optionType": "OPTION_TYPE_CALL",
       "strike": 3.3,
-      "contractMultiplier": 1,
-      "delta": 1.0,
-      "gamma": 1.0,
+      "contractMultiplier": 10000,
+      "delta": 0.0,
+      "gamma": 0.0,
       "thetaPerYear": -0.1,
-      "vegaPerAbsoluteVolatility": 0.2
+      "vegaPerAbsoluteVolatility": 0.2,
+      "bid": 0.1,
+      "ask": 0.1,
+      "bidSize": "0",
+      "askSize": "0"
     },
     {
       "instrument": "PUT",
       "optionType": "OPTION_TYPE_PUT",
       "strike": 3.3,
-      "contractMultiplier": 1,
-      "delta": -1.0,
-      "gamma": 1.0,
+      "contractMultiplier": 10000,
+      "delta": 0.0,
+      "gamma": 0.0,
       "thetaPerYear": -0.1,
-      "vegaPerAbsoluteVolatility": 0.2
+      "vegaPerAbsoluteVolatility": 0.2,
+      "bid": 0.1,
+      "ask": 0.1,
+      "bidSize": "0",
+      "askSize": "0"
+    },
+    {
+      "instrument": "A",
+      "optionType": "OPTION_TYPE_CALL",
+      "strike": 3.4,
+      "contractMultiplier": 10000,
+      "delta": 0.4,
+      "gamma": 0.8,
+      "thetaPerYear": 0.0,
+      "vegaPerAbsoluteVolatility": 0.0,
+      "bid": 0.1,
+      "ask": 0.1,
+      "bidSize": "1",
+      "askSize": "1"
+    },
+    {
+      "instrument": "B",
+      "optionType": "OPTION_TYPE_CALL",
+      "strike": 3.5,
+      "contractMultiplier": 10000,
+      "delta": 0.3,
+      "gamma": 1.0,
+      "thetaPerYear": 0.0,
+      "vegaPerAbsoluteVolatility": 0.0,
+      "bid": 0.1,
+      "ask": 0.1,
+      "bidSize": "1",
+      "askSize": "1"
+    },
+    {
+      "instrument": "C",
+      "optionType": "OPTION_TYPE_CALL",
+      "strike": 3.6,
+      "contractMultiplier": 10000,
+      "delta": 0.3,
+      "gamma": 0.2,
+      "thetaPerYear": 0.0,
+      "vegaPerAbsoluteVolatility": 0.0,
+      "bid": 0.1,
+      "ask": 0.1,
+      "bidSize": "1",
+      "askSize": "1"
     }
   ],
   "confirmedAlphaPositions": {
     "ALPHA": "-1"
   },
   "confirmedBetaPositions": {},
-  "hedgeUniverse": ["CALL", "PUT"],
+  "hedgeUniverse": ["CALL", "PUT", "A", "B", "C"],
   "configuration": {
-    "model": "HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR"
+    "model": "HEDGE_MODEL_SCENARIO_ROUTED"
   }
 }

@@ -133,6 +133,7 @@ def build_pricing_request(
                 "priceTick": contract.price_tick,
                 "marketPrice": market_price,
                 "marketPriceSource": price_source,
+                **_book_fields(quote),
             }
         )
 
@@ -166,6 +167,7 @@ def build_pricing_request(
                 "priceTick": contract.price_tick,
                 "marketPrice": market_price,
                 "marketPriceSource": price_source,
+                **_book_fields(quote),
             }
         )
 
@@ -214,6 +216,19 @@ def build_pricing_request(
             },
         },
     }
+
+
+def _book_fields(quote) -> dict[str, float | int]:
+    fields: dict[str, float | int] = {}
+    if quote.bid is not None:
+        fields["bid"] = quote.bid
+    if quote.ask is not None:
+        fields["ask"] = quote.ask
+    if quote.bid_size is not None:
+        fields["bidSize"] = quote.bid_size
+    if quote.ask_size is not None:
+        fields["askSize"] = quote.ask_size
+    return fields
 
 
 def record_pricing_request(path: str | Path, request: dict[str, Any]) -> None:
