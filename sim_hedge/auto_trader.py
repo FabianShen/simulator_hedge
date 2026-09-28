@@ -33,7 +33,6 @@ from sim_hedge.jsonio import (
 )
 from sim_hedge.execution.alpha.orders import build_alpha_order_dry_run
 from sim_hedge.execution.alpha.continuation import (
-    TERMINAL_ORDER_STATUSES,
     assess_alpha_continuation,
     select_alpha_continuation_request,
 )
@@ -462,7 +461,7 @@ def _recover_stuck_beta(
     now: datetime,
     registry_path: Path,
 ) -> str | None:
-    """Retire confirmed cancellations, or request cancellation of stale Beta orders."""
+    """Retire cancelled Beta orders or cancel stale orders, including partial fills."""
 
     if cancel_after <= 0:
         raise ValueError("cancel_after must be positive")
@@ -477,8 +476,8 @@ def _recover_stuck_beta(
         if (
             intent is None
             or intent.strategy != "BETA"
-            or order.status.upper() != "CANCELLED"
-            or order.traded_volume != 0
+            or order.status.upper() not in {"CANCELLED", "PARTIALLY_CANCELLED"}
+            or order.remaining_volume != 0
             or client_id in updated.retired_cancelled_client_order_ids
         ):
             continue
@@ -496,9 +495,8 @@ def _recover_stuck_beta(
         if (
             intent is None
             or intent.strategy != "BETA"
-            or status in TERMINAL_ORDER_STATUSES
-            or status != "ACCEPTED"
-            or order.traded_volume != 0
+            or status not in {"ACCEPTED", "PARTIALLY_FILLED"}
+            or order.remaining_volume == 0
             or (now - order.created_at).total_seconds() <= cancel_after
         ):
             continue
