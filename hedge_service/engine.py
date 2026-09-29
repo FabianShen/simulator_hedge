@@ -157,7 +157,8 @@ class ReferenceHedgeEngine:
         multipliers = {item.contract_multiplier for item in request.instruments}
         if len(multipliers) != 1:
             raise ValueError("all option contract multipliers must be uniform")
-        config = replace(self.config, option_multiplier=next(iter(multipliers)))
+        config = self.config.resolved_for(request.spot)
+        config = replace(config, option_multiplier=next(iter(multipliers)))
         state = build_validated_state(request, config, self.capital)
         if state.delta_breached or state.gamma_breached:
             decision_policy = "D_G_MILP"
@@ -194,7 +195,9 @@ class ReferenceHedgeEngine:
             risk_at_target, state.spot,
             config.risk_spot_shock_fraction, config.risk_vol_shock,
         )
-        gamma_improvement = abs(state.gamma_risk) - abs(float(risk_after[1]))
+        gamma_improvement = abs(state.gamma_risk) - abs(
+            float(risk_after[1]) - config.gamma_center_risk
+        )
         execution_diagnostics = _execution_diagnostics(
             state=state,
             incremental=incremental,

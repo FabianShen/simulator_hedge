@@ -1,9 +1,13 @@
 import json
+import contextlib
+import io
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+from unittest.mock import Mock, patch
 
-from hedge_service.grpc_server import create_server
+from hedge_service.grpc_server import create_server, main as hedge_server_main
 from hedge_engine.config import HedgeConfig
 from hedge_service.protobuf_codec import request_from_proto, response_to_proto
 from hedging.v1 import hedging_pb2
@@ -56,6 +60,29 @@ class GrpcHedgingIntegrationTests(unittest.TestCase):
             health["proposal_protocol_version"], "sim-hedge/hedge-proposal/v1"
         )
         self.assertEqual(health["engine_name"], "reference-python-hedge")
+
+    def test_server_cli_wires_raw_centers_and_limits(self) -> None:
+        server = Mock()
+        server.wait_for_termination.side_effect = KeyboardInterrupt
+        with patch.object(sys, "argv", [
+            "grpc_server",
+            "--target-delta", "5000", "--delta-limit", "1000",
+            "--target-gamma", "0", "--gamma-limit", "3000",
+        ]), patch(
+            "hedge_service.grpc_server.create_server",
+            return_value=(server, 50052),
+        ) as create:
+            with contextlib.redirect_stdout(io.StringIO()):
+                hedge_server_main()
+
+        engine = create.call_args.kwargs["engine"]
+        self.assertEqual(engine.config.target_delta, 5_000.0)
+        self.assertEqual(engine.config.delta_limit, 1_000.0)
+        self.assertEqual(engine.config.target_gamma, 0.0)
+        self.assertEqual(engine.config.gamma_limit, 3_000.0)
+        resolved = engine.config.resolved_for(100.0)
+        self.assertEqual(resolved.delta_center_risk, 5_000.0)
+        self.assertEqual(resolved.gamma_center_risk, 0.0)
 
     def test_grpc_returns_the_versioned_incremental_proposal(self) -> None:
         payload = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))

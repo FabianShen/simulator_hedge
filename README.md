@@ -93,6 +93,12 @@ transaction costs, side-specific displayed depth and applied depth cap, and
 short-margin diagnostics. These estimates do not guarantee execution or broker
 margin treatment.
 
+To express a nonzero hedge center in raw, multiplier-scaled portfolio Greeks,
+set the center and its absolute tolerance together. For example,
+`--target-delta 5000 --delta-limit 1000` means keep raw Delta within 4000 to 6000;
+the raw limit overrides the scenario-risk Delta bands. Gamma works the same way.
+Without these flags the engine retains its zero-centered scenario-risk bands.
+
 The ledger is reloaded after every pricing response, so a separately reconciled
 fill becomes part of the next risk calculation without restarting the live
 feed. The pricing request also reloads the ledger: every fresh, two-sided
@@ -474,9 +480,8 @@ a broker portfolio plus a fill-confirmed Alpha/Beta strategy ledger:
   outputs\live-pricing-request.json `
   outputs\portfolio_state.json `
   outputs\strategy_ledger.json `
-  --capital 100000000 `
-  --delta-entry-risk-band 30000 --delta-target-risk-band 10000 `
-  --gamma-entry-risk-band 10000 --gamma-target-risk-band 10000 `
+  --target-delta 5000 --delta-limit 1000 `
+  --target-gamma 0 --gamma-limit 3000 `
   --output outputs\hedge_plan.json
 ```
 

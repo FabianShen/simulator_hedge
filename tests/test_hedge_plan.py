@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from hedge_engine import HedgeConfig, validate_hedge_proposal
@@ -96,6 +97,74 @@ class HedgePlanPricingFilterTests(unittest.TestCase):
 
 
 class HedgePlanReplayTests(unittest.TestCase):
+    def test_raw_delta_target_offline_cli_replay_keeps_reported_greeks_raw(self) -> None:
+        pricing = _recorded_pricing()
+        alpha = {"C-3.45": 1}
+
+        def response_with_alpha_delta(delta: float):
+            candidate_deltas = {"C-3.45": delta, "C-3.6": 0.05}
+            results = tuple(
+                OptionPricingResult(
+                    instrument=option["instrument"],
+                    status="OK",
+                    delta=candidate_deltas.get(option["instrument"], 0.0),
+                    gamma=0.0,
+                    theta_per_year=0.0,
+                    vega_per_absolute_volatility=0.0,
+                )
+                for option in pricing["options"]
+            )
+            return SimpleNamespace(results=results)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pricing_path = _write_pricing(root, pricing)
+            portfolio_path = root / "portfolio.json"
+            ledger_path = root / "ledger.json"
+            output_path = root / "hedge_plan.json"
+            results = {}
+
+            with patch.object(
+                SabrPricingEngine,
+                "price",
+                side_effect=(response_with_alpha_delta(0.5), response_with_alpha_delta(0.65)),
+            ):
+                for label, delta in (("center", 5_000.0), ("outside", 6_500.0)):
+                    portfolio_path.write_text(
+                        json.dumps(_portfolio(alpha)), encoding="utf-8"
+                    )
+                    ledger_path.write_text(
+                        json.dumps(_ledger(alpha)), encoding="utf-8"
+                    )
+                    stdout = io.StringIO()
+                    with patch.object(sys, "argv", [
+                        "hedge_plan", str(pricing_path), str(portfolio_path),
+                        str(ledger_path), "--output", str(output_path),
+                        "--target-delta", "5000", "--delta-limit", "1000",
+                        "--target-gamma", "0", "--gamma-limit", "3000",
+                    ]), contextlib.redirect_stdout(stdout):
+                        main()
+                    results[label] = (
+                        json.loads(output_path.read_text(encoding="utf-8")),
+                        stdout.getvalue(),
+                    )
+
+        centered, centered_stdout = results["center"]
+        self.assertIn("before delta=5000.000000", centered_stdout)
+        self.assertEqual(centered["risk"]["before_hedge"]["delta"], 5_000.0)
+        self.assertEqual(centered["decision_policy"], "MSH")
+        self.assertEqual(centered["incremental_trades"], {})
+
+        outside, outside_stdout = results["outside"]
+        self.assertIn("before delta=6500.000000", outside_stdout)
+        self.assertEqual(outside["risk"]["before_hedge"]["delta"], 6_500.0)
+        self.assertEqual(outside["decision_policy"], "D_G_MILP")
+        self.assertEqual(outside["incremental_trades"], {"C-3.6": -1})
+        self.assertEqual(outside["risk_at_target_beta"]["delta"], 6_000.0)
+        self.assertLessEqual(
+            abs(outside["risk_at_target_beta"]["delta"] - 5_000.0), 1_000.0
+        )
+
     def test_breached_risk_uses_reference_engine_pair_and_trade(self) -> None:
         pricing = _recorded_pricing()
         alpha = {"C-3.45": -1000}
@@ -288,10 +357,12 @@ class HedgePlanReplayTests(unittest.TestCase):
             with patch.object(sys, "argv", [
                 "hedge_plan", str(pricing_path), str(portfolio_path),
                 str(ledger_path), "--output", str(output_path),
-                "--delta-limit", str(DELTA_ENTRY),
+                "--delta-entry-risk-band", str(DELTA_ENTRY),
                 "--delta-target-risk-band", str(DELTA_TARGET),
                 "--gamma-entry-risk-band", str(GAMMA_ENTRY),
                 "--gamma-target-risk-band", str(GAMMA_TARGET),
+                "--target-delta", "5000", "--delta-limit", "1000",
+                "--target-gamma", "0", "--gamma-limit", "3000",
             ]), contextlib.redirect_stdout(io.StringIO()):
                 main()
             output = json.loads(output_path.read_text(encoding="utf-8"))

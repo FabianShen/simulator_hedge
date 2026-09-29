@@ -27,6 +27,14 @@ override these settings with `--capital`, `--delta-entry-risk-band`,
 `--delta-target-risk-band`, `--gamma-entry-risk-band`, and
 `--gamma-target-risk-band`.
 
+Optional raw-Greek centers use `--target-delta`/`--target-gamma`, with matching
+`--delta-limit`/`--gamma-limit` tolerances. For example,
+`--target-delta 5000 --delta-limit 1000` triggers outside raw Delta 4000 to 6000
+and uses that single band as both entry and solver target. Raw Greek values are
+the multiplier-scaled portfolio Greek units returned in the proposal. A
+nonzero center without its corresponding raw limit is rejected. When a raw
+limit is supplied, it overrides that Greek's scenario-risk entry/target bands.
+
 New requests identify this automatic routing policy as
 `HEDGE_MODEL_SCENARIO_ROUTED`. The former
 `HEDGE_MODEL_SIMPLE_DELTA_GAMMA_PAIR` enum spelling remains a deprecated alias

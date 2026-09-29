@@ -86,17 +86,27 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--capital", type=_positive_float, default=100_000_000.0)
     parser.add_argument(
-        "--delta-entry-risk-band", "--delta-limit", dest="delta_entry_risk_band",
-        type=_positive_float, default=30_000.0,
-        help="scenario-risk entry band (legacy --delta-limit alias)",
+        "--delta-entry-risk-band", type=_positive_float,
+        default=30_000.0,
+        help="scenario-risk entry band (used when --delta-limit is omitted)",
     )
     parser.add_argument("--delta-target-risk-band", type=_positive_float, default=10_000.0)
     parser.add_argument(
-        "--gamma-entry-risk-band", "--gamma-limit", dest="gamma_entry_risk_band",
-        type=_positive_float, default=10_000.0,
-        help="scenario-risk entry band (legacy --gamma-limit alias)",
+        "--gamma-entry-risk-band", type=_positive_float,
+        default=10_000.0,
+        help="scenario-risk entry band (used when --gamma-limit is omitted)",
     )
     parser.add_argument("--gamma-target-risk-band", type=_positive_float, default=10_000.0)
+    parser.add_argument("--target-delta", type=_finite_float, default=0.0)
+    parser.add_argument("--target-gamma", type=_finite_float, default=0.0)
+    parser.add_argument(
+        "--delta-limit", type=_positive_float, default=None,
+        help="raw-Greek Delta tolerance around --target-delta",
+    )
+    parser.add_argument(
+        "--gamma-limit", type=_positive_float, default=None,
+        help="raw-Greek Gamma tolerance around --target-gamma",
+    )
     args = parser.parse_args()
 
     engine = ReferenceHedgeEngine(
@@ -105,6 +115,10 @@ def main() -> None:
             delta_target_risk_band=args.delta_target_risk_band,
             gamma_entry_risk_band=args.gamma_entry_risk_band,
             gamma_target_risk_band=args.gamma_target_risk_band,
+            target_delta=args.target_delta,
+            target_gamma=args.target_gamma,
+            delta_limit=args.delta_limit,
+            gamma_limit=args.gamma_limit,
         ),
         capital=args.capital,
     )

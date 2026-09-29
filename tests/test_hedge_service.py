@@ -117,6 +117,61 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         self.assertTrue(result.proposal["incremental_trades"])
         self.assertLess(abs(result.risk_at_target_beta.gamma), 0.75)
 
+    def test_raw_delta_target_is_honored_and_raw_greeks_remain_reported(self) -> None:
+        instruments = (
+            _instrument("ALPHA", "CALL", 105, 5_000.0, 0.0),
+            _instrument("CANDIDATE", "CALL", 110, 500.0, 0.0),
+        )
+        engine = ReferenceHedgeEngine(
+            config=HedgeConfig(option_fee=0.0, target_delta=5_000.0, delta_limit=1_000.0)
+        )
+        inside = engine.propose(
+            make_request(alpha={"ALPHA": 1}, instruments=instruments,
+                         universe=("CANDIDATE",)),
+            created_at=NOW,
+        )
+        outside = engine.propose(
+            make_request(
+                alpha={"ALPHA": 1},
+                instruments=(
+                    _instrument("ALPHA", "CALL", 105, 6_500.0, 0.0),
+                    instruments[1],
+                ),
+                universe=("CANDIDATE",),
+            ),
+            created_at=NOW,
+        )
+
+        self.assertEqual(inside.decision_policy, "MSH")
+        self.assertEqual(inside.proposal["incremental_trades"], {})
+        self.assertEqual(inside.portfolio_risk.delta, 5_000.0)
+        self.assertEqual(outside.decision_policy, "D_G_MILP")
+        self.assertEqual(outside.proposal["incremental_trades"], {"CANDIDATE": -1})
+        self.assertEqual(outside.alpha_risk.delta, 6_500.0)
+        self.assertEqual(outside.risk_at_target_beta.delta, 6_000.0)
+        self.assertLessEqual(abs(outside.risk_at_target_beta.delta - 5_000.0), 1_000.0)
+
+    def test_raw_gamma_center_is_used_for_trigger_and_improvement(self) -> None:
+        request = make_request(
+            alpha={"ALPHA": 1},
+            instruments=(
+                _instrument("ALPHA", "CALL", 105, 0.0, 130.0),
+                _instrument("CANDIDATE", "CALL", 110, 0.0, 10.0),
+            ),
+            universe=("CANDIDATE",),
+        )
+        engine = ReferenceHedgeEngine(
+            config=HedgeConfig(option_fee=0.0, target_gamma=100.0, gamma_limit=20.0)
+        )
+
+        result = engine.propose(request, created_at=NOW)
+
+        self.assertEqual(result.decision_policy, "D_G_MILP")
+        self.assertEqual(result.proposal["incremental_trades"], {"CANDIDATE": -1})
+        self.assertEqual(result.alpha_risk.gamma, 130.0)
+        self.assertEqual(result.risk_at_target_beta.gamma, 120.0)
+        self.assertAlmostEqual(result.gamma_improvement, 5.0)
+
     def test_inside_bands_routes_to_stateless_msh_and_respects_depth(self) -> None:
         request = make_request(
             alpha={},

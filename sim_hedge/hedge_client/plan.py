@@ -37,15 +37,29 @@ def main() -> None:
     parser.add_argument("--max-market-age", type=float, default=10.0)
     parser.add_argument("--capital", type=float, default=100_000_000.0)
     parser.add_argument(
-        "--delta-entry-risk-band", "--delta-limit", dest="delta_entry_risk_band",
-        type=float, default=30_000.0,
+        "--delta-entry-risk-band", type=float, default=30_000.0,
     )
     parser.add_argument("--delta-target-risk-band", type=float, default=10_000.0)
     parser.add_argument(
-        "--gamma-entry-risk-band", "--gamma-limit", dest="gamma_entry_risk_band",
-        type=float, default=10_000.0,
+        "--gamma-entry-risk-band", type=float, default=10_000.0,
     )
     parser.add_argument("--gamma-target-risk-band", type=float, default=10_000.0)
+    parser.add_argument(
+        "--target-delta", type=float, default=0.0,
+        help="raw-Greek Delta center; a nonzero value requires --delta-limit",
+    )
+    parser.add_argument(
+        "--target-gamma", type=float, default=0.0,
+        help="raw-Greek Gamma center; a nonzero value requires --gamma-limit",
+    )
+    parser.add_argument(
+        "--delta-limit", type=float, default=None,
+        help="raw-Greek Delta tolerance around --target-delta",
+    )
+    parser.add_argument(
+        "--gamma-limit", type=float, default=None,
+        help="raw-Greek Gamma tolerance around --target-gamma",
+    )
     args = parser.parse_args()
     try:
         pricing_payload = _object(_read(args.pricing_request), "pricing request")
@@ -63,6 +77,10 @@ def main() -> None:
                 delta_target_risk_band=args.delta_target_risk_band,
                 gamma_entry_risk_band=args.gamma_entry_risk_band,
                 gamma_target_risk_band=args.gamma_target_risk_band,
+                target_delta=args.target_delta,
+                target_gamma=args.target_gamma,
+                delta_limit=args.delta_limit,
+                gamma_limit=args.gamma_limit,
             ),
         )
         output = {

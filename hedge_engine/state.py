@@ -102,6 +102,8 @@ def build_validated_state(request, config: HedgeConfig, capital: float) -> Valid
         portfolio_greeks, request.spot,
         config.risk_spot_shock_fraction, config.risk_vol_shock,
     )
+    delta_risk = float(delta_risk) - config.delta_center_risk
+    gamma_risk = float(gamma_risk) - config.gamma_center_risk
 
     positions: dict[str, int] = {}
     for book in (alpha, beta):
@@ -159,8 +161,8 @@ def build_validated_state(request, config: HedgeConfig, capital: float) -> Valid
         strategy_greeks=strategy_greeks,
         hedge_greeks=hedge_greeks,
         portfolio_greeks=portfolio_greeks,
-        delta_risk=float(delta_risk),
-        gamma_risk=float(gamma_risk),
+        delta_risk=delta_risk,
+        gamma_risk=gamma_risk,
         vega_risk=float(vega_risk),
         delta_breached=abs(float(delta_risk)) > config.delta_entry_risk_band,
         gamma_breached=abs(float(gamma_risk)) > config.gamma_entry_risk_band,
