@@ -11,7 +11,7 @@ from hedge_engine import (
     empty_order_registry,
     register_order_intent,
 )
-from sim_hedge.adapters.sim_trading import SimTradingUnknownOutcomeError
+from sim_hedge.adapters.sim_trading import SimTradingError, SimTradingUnknownOutcomeError
 from sim_hedge.execution.beta.submit import submit_beta_orders
 from sim_hedge.execution.submission import request_for_intent
 from sim_hedge.domain.portfolio import AccountSnapshot, PortfolioSnapshot, PositionSnapshot
@@ -163,6 +163,31 @@ class BetaSubmissionTests(unittest.TestCase):
 
         self.assertEqual(updated.unknown_client_order_ids, ("beta-1",))
         self.assertEqual(len(report["unknown"]), 1)
+        self.assertEqual(len(persisted), 2)
+        self.assertEqual(persisted[0], registry)
+
+    def test_rejection_abandons_intent_instead_of_leaving_it_unbound(self) -> None:
+        proposal, registry, ledger, portfolio = setup()
+        persisted = []
+
+        def reject(request):
+            raise SimTradingError("rejected")
+
+        updated, report = submit_beta_orders(
+            proposal=proposal,
+            registry=registry,
+            ledger=ledger,
+            portfolio=portfolio,
+            submit=reject,
+            persist=persisted.append,
+            now=NOW,
+            max_total_contracts=1,
+        )
+
+        self.assertEqual(len(report["rejected"]), 1)
+        self.assertEqual(report["unknown"], [])
+        self.assertEqual(updated.unknown_client_order_ids, ())
+        self.assertEqual(updated.abandoned_client_order_ids, ("beta-1",))
         self.assertEqual(len(persisted), 2)
         self.assertEqual(persisted[0], registry)
 

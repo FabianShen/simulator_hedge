@@ -97,6 +97,105 @@ class HedgePlanPricingFilterTests(unittest.TestCase):
 
 
 class HedgePlanReplayTests(unittest.TestCase):
+    def test_cli_maps_position_limit_and_zero_to_unbounded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pricing_path = root / "pricing.json"
+            portfolio_path = root / "portfolio.json"
+            ledger_path = root / "ledger.json"
+            for path in (pricing_path, portfolio_path, ledger_path):
+                path.write_text("{}", encoding="utf-8")
+
+            for arguments, expected in (
+                ([], 300),
+                (["--position-limit", "2000"], 2_000),
+                (["--position-limit", "0"], None),
+            ):
+                with self.subTest(arguments=arguments):
+                    received = {}
+
+                    def capture_config(*args, **kwargs):
+                        received["config"] = kwargs["config"]
+                        raise RuntimeError("stop after inspecting CLI config")
+
+                    with patch.object(sys, "argv", [
+                        "hedge_plan", str(pricing_path), str(portfolio_path),
+                        str(ledger_path), *arguments,
+                    ]), patch(
+                        "sim_hedge.hedge_client.plan.build_offline_hedge_decision",
+                        side_effect=capture_config,
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "stop after"):
+                            main()
+
+                    self.assertEqual(received["config"].v2_position_limit, expected)
+
+    def test_cli_rejects_negative_or_fractional_position_limits(self) -> None:
+        for value in ("-1", "1.5"):
+            with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()):
+                with patch.object(sys, "argv", [
+                    "hedge_plan", "pricing.json", "portfolio.json", "ledger.json",
+                    "--position-limit", value,
+                ]):
+                    with self.assertRaises(SystemExit) as raised:
+                        main()
+            self.assertEqual(raised.exception.code, 2)
+
+    def test_offline_cli_position_limit_unblocks_legacy_oversized_beta(self) -> None:
+        pricing = _recorded_pricing()
+        beta = {"C-3.45": 1_315}
+        priced_results = tuple(
+            OptionPricingResult(
+                instrument=option["instrument"],
+                status="OK",
+                delta=(
+                    1.0 if option["instrument"] == "C-3.45"
+                    else 0.0
+                ),
+                gamma=0.0,
+                theta_per_year=0.0,
+                vega_per_absolute_volatility=0.0,
+            )
+            for option in pricing["options"]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pricing_path = _write_pricing(root, pricing)
+            portfolio_path = root / "portfolio.json"
+            ledger_path = root / "ledger.json"
+            output_path = root / "hedge_plan.json"
+            portfolio_path.write_text(
+                json.dumps(_portfolio({}, beta)), encoding="utf-8"
+            )
+            ledger_path.write_text(json.dumps(_ledger({}, beta)), encoding="utf-8")
+
+            output = {}
+            with patch.object(
+                SabrPricingEngine,
+                "price",
+                return_value=SimpleNamespace(results=priced_results),
+            ):
+                for label, extra_args in (
+                    ("default", []),
+                    ("raised", ["--position-limit", "2000"]),
+                ):
+                    with patch.object(sys, "argv", [
+                        "hedge_plan", str(pricing_path), str(portfolio_path),
+                        str(ledger_path), "--output", str(output_path),
+                        "--target-delta", "0", "--delta-limit", "11150000",
+                        *extra_args,
+                    ]), contextlib.redirect_stdout(io.StringIO()):
+                        main()
+                    output[label] = json.loads(
+                        output_path.read_text(encoding="utf-8")
+                    )
+
+        self.assertEqual(output["default"]["decision_policy"], "D_G_MILP")
+        self.assertEqual(output["default"]["incremental_trades"], {})
+        self.assertEqual(output["raised"]["decision_policy"], "D_G_MILP")
+        self.assertTrue(output["raised"]["incremental_trades"])
+
     def test_raw_delta_target_offline_cli_replay_keeps_reported_greeks_raw(self) -> None:
         pricing = _recorded_pricing()
         alpha = {"C-3.45": 1}

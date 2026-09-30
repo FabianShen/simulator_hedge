@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping, Sequence
 from hedge_engine import (
     OrderIntent,
     OrderRegistry,
+    abandon_unsubmitted_intents,
     bind_broker_order,
     mark_submission_unknown,
 )
@@ -33,7 +34,7 @@ def execute_registered_requests(
     rejected: list[dict[str, str]] = []
     unknown: list[dict[str, str]] = []
     current = registry
-    for request in requests:
+    for idx, request in enumerate(requests):
         client_order_id = str(request["client_order_id"])
         try:
             response = submit(request)
@@ -44,6 +45,11 @@ def execute_registered_requests(
             break
         except SimTradingError as exc:
             rejected.append({"client_order_id": client_order_id, "error": str(exc)})
+            orphaned = tuple(
+                str(request["client_order_id"]) for request in requests[idx:]
+            )
+            current = abandon_unsubmitted_intents(current, orphaned)
+            persist(current)
             break
         order_id = str(response["order_id"])
         current = bind_broker_order(

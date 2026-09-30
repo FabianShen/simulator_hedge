@@ -107,6 +107,10 @@ def main() -> None:
         "--gamma-limit", type=_positive_float, default=None,
         help="raw-Greek Gamma tolerance around --target-gamma",
     )
+    parser.add_argument(
+        "--position-limit", type=_nonnegative_int, default=300,
+        help="max hedge contracts per instrument; 0 disables the limit (default 300)",
+    )
     args = parser.parse_args()
 
     engine = ReferenceHedgeEngine(
@@ -119,6 +123,7 @@ def main() -> None:
             target_gamma=args.target_gamma,
             delta_limit=args.delta_limit,
             gamma_limit=args.gamma_limit,
+            v2_position_limit=(args.position_limit or None),
         ),
         capital=args.capital,
     )
@@ -145,6 +150,18 @@ def _positive_float(value: str) -> float:
     result = _finite_float(value)
     if result <= 0:
         raise argparse.ArgumentTypeError("value must be positive")
+    return result
+
+
+def _nonnegative_int(value: str) -> int:
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "value must be a nonnegative integer"
+        ) from exc
+    if result < 0:
+        raise argparse.ArgumentTypeError("value must be nonnegative")
     return result
 
 

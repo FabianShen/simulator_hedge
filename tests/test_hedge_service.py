@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 import unittest
 
@@ -171,6 +172,38 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
         self.assertEqual(result.alpha_risk.gamma, 130.0)
         self.assertEqual(result.risk_at_target_beta.gamma, 120.0)
         self.assertAlmostEqual(result.gamma_improvement, 5.0)
+
+    def test_configured_position_limit_allows_hedging_legacy_oversized_beta(self) -> None:
+        request = make_request(
+            alpha={},
+            beta={"CALL": 1_315},
+            instruments=(
+                _instrument(
+                    "CALL", "CALL", 100, 0.5, 0.0,
+                    bid_size=10_000, ask_size=10_000,
+                ),
+            ),
+            universe=("CALL",),
+        )
+        base_config = HedgeConfig(
+            option_fee=0.0,
+            target_delta=0.0,
+            delta_limit=100.0,
+            v2_trade_limit=200,
+        )
+
+        blocked = ReferenceHedgeEngine(config=base_config).propose(
+            request, created_at=NOW
+        )
+        enabled = ReferenceHedgeEngine(
+            config=replace(base_config, v2_position_limit=2_000)
+        ).propose(request, created_at=NOW)
+
+        self.assertEqual(blocked.decision_policy, "D_G_MILP")
+        self.assertEqual(blocked.proposal["incremental_trades"], {})
+        self.assertEqual(enabled.decision_policy, "D_G_MILP")
+        self.assertEqual(enabled.proposal["incremental_trades"], {"CALL": -200})
+        self.assertEqual(enabled.proposal["target_beta_positions"], {"CALL": 1_115})
 
     def test_inside_bands_routes_to_stateless_msh_and_respects_depth(self) -> None:
         request = make_request(

@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 import unittest
 
-from sim_hedge.adapters.sim_trading import SimTradingUnknownOutcomeError
+from sim_hedge.adapters.sim_trading import SimTradingError, SimTradingUnknownOutcomeError
 from sim_hedge.execution.alpha.orders import build_alpha_order_dry_run
 from sim_hedge.execution.alpha.submit import submit_alpha_orders
 from sim_hedge.domain.portfolio import AccountSnapshot, PortfolioSnapshot
@@ -108,6 +108,34 @@ class AlphaSubmissionTests(unittest.TestCase):
         self.assertEqual(
             updated.unknown_client_order_ids,
             (proposal["requests"][0]["client_order_id"],),
+        )
+
+    def test_rejection_abandons_rejected_and_trailing_intents(self) -> None:
+        pricing, proposal, registry, portfolio = inputs()
+        calls = []
+        persisted = []
+
+        def reject(request):
+            calls.append(request)
+            raise SimTradingError("rejected")
+
+        updated, report = submit_alpha_orders(
+            proposal=proposal,
+            registry=registry,
+            portfolio=portfolio,
+            submit=reject,
+            persist=persisted.append,
+            now=NOW,
+            max_total_contracts=2,
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(report["rejected"]), 1)
+        self.assertEqual(report["unknown"], [])
+        self.assertEqual(updated.unknown_client_order_ids, ())
+        self.assertEqual(
+            set(updated.abandoned_client_order_ids),
+            {request["client_order_id"] for request in proposal["requests"]},
         )
 
     def test_rejects_stale_snapshot_before_any_submission(self) -> None:

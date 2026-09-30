@@ -60,6 +60,10 @@ def main() -> None:
         "--gamma-limit", type=float, default=None,
         help="raw-Greek Gamma tolerance around --target-gamma",
     )
+    parser.add_argument(
+        "--position-limit", type=_nonnegative_int, default=300,
+        help="max hedge contracts per instrument; 0 disables the limit (default 300)",
+    )
     args = parser.parse_args()
     try:
         pricing_payload = _object(_read(args.pricing_request), "pricing request")
@@ -81,6 +85,7 @@ def main() -> None:
                 target_gamma=args.target_gamma,
                 delta_limit=args.delta_limit,
                 gamma_limit=args.gamma_limit,
+                v2_position_limit=(args.position_limit or None),
             ),
         )
         output = {
@@ -364,6 +369,18 @@ def _broker_positions(portfolio: Mapping[str, Any]) -> dict[str, int]:
 
 def _datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _nonnegative_int(value: str) -> int:
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "value must be a nonnegative integer"
+        ) from exc
+    if result < 0:
+        raise argparse.ArgumentTypeError("value must be nonnegative")
+    return result
 
 
 def _decimal_quantity(value: Any, name: str) -> int:
