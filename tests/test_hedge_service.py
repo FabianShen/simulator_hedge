@@ -1,9 +1,15 @@
 from dataclasses import replace
 from datetime import datetime, timezone
+import contextlib
+import io
+import sys
 import unittest
+from unittest.mock import Mock, patch
 
 from hedge_engine.config import HedgeConfig
 from hedge_service import HedgeInstrument, HedgeRequest, ReferenceHedgeEngine
+from hedge_service.grpc_server import main as hedge_server_main
+from hedge_service.protobuf_codec import response_to_proto
 
 
 NOW = datetime(2026, 9, 21, 3, 0, tzinfo=timezone.utc)
@@ -65,6 +71,113 @@ def dg_config(**overrides):
 
 
 class ReferenceHedgeServiceTests(unittest.TestCase):
+    def test_server_cli_depth_excess_penalty_defaults_and_overrides(self) -> None:
+        for arguments, expected in (([], 20), (["--depth-excess-penalty", "0"], 0),
+                                    (["--depth-excess-penalty", "12.5"], 12.5)):
+            with self.subTest(arguments=arguments):
+                server = Mock()
+                server.wait_for_termination.side_effect = KeyboardInterrupt
+                with patch.object(sys, "argv", ["grpc_server", *arguments]), patch(
+                    "hedge_service.grpc_server.create_server", return_value=(server, 50052),
+                ) as create, contextlib.redirect_stdout(io.StringIO()):
+                    hedge_server_main()
+                self.assertEqual(create.call_args.kwargs["engine"].config.v2_depth_excess_penalty, expected)
+
+    def test_server_cli_rejects_invalid_depth_excess_penalty(self) -> None:
+        for value in ("-1", "nan", "inf", "-inf", "invalid"):
+            with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()):
+                with patch.object(sys, "argv", ["grpc_server", f"--depth-excess-penalty={value}"]):
+                    with self.assertRaises(SystemExit) as raised:
+                        hedge_server_main()
+                self.assertEqual(raised.exception.code, 2)
+
+    def test_shallow_depth_double_breach_produces_trades_and_excess_diagnostics(self) -> None:
+        request = make_request(
+            alpha={"ALPHA": 1},
+            instruments=(
+                _instrument("ALPHA", "CALL", 105, -51, 277, multiplier=10_000),
+                _instrument("D", "CALL", 110, 0.5, 0, bid_size=1, ask_size=1, multiplier=10_000),
+                _instrument("G", "CALL", 120, 0, 2, bid_size=5, ask_size=5, multiplier=10_000),
+            ),
+            universe=("D", "G"),
+        )
+        for penalty in (20, 0):
+            with self.subTest(penalty=penalty):
+                config = HedgeConfig(
+                    option_fee=0, target_delta=-50_000, delta_limit=10_000,
+                    target_gamma=-80_000, gamma_limit=10_000,
+                    v2_depth_excess_penalty=penalty,
+                )
+                result = ReferenceHedgeEngine(config=config).propose(request, created_at=NOW)
+                trades = result.proposal["incremental_trades"]
+                self.assertEqual(result.decision_policy, "D_G_MILP")
+                self.assertGreater(trades["D"], 1)
+                self.assertLess(trades["G"], -5)
+                self.assertGreater(sum(abs(q) for q in trades.values()), 100)
+                self.assertTrue(all(abs(q) <= 200 for q in trades.values()))
+                self.assertTrue(all(abs(q) <= 300 for q in result.proposal["target_beta_positions"].values()))
+                self.assertLessEqual(abs(result.risk_at_target_beta.delta + 50_000), 10_000)
+                self.assertLessEqual(abs(result.risk_at_target_beta.gamma + 80_000), 10_000)
+                diagnostics = result.execution_diagnostics
+                excess = max(trades["D"] - 1, 0) + max(-trades["G"] - 5, 0)
+                self.assertEqual(diagnostics.estimated_transaction_cost, penalty * excess)
+                self.assertEqual(sum(leg.estimated_transaction_cost for leg in diagnostics.legs), penalty * excess)
+                self.assertTrue(all(leg.displayed_depth_limit is None for leg in diagnostics.legs))
+                self.assertLessEqual(diagnostics.estimated_short_margin_after, diagnostics.short_margin_limit)
+                wire = response_to_proto(request.request_id, result)
+                self.assertEqual(wire.execution_diagnostics.estimated_transaction_cost, penalty * excess)
+                self.assertTrue(all(not leg.HasField("displayed_depth_limit")
+                                    for leg in wire.execution_diagnostics.legs))
+
+    def test_gamma_fallback_high_penalty_stays_within_displayed_depth(self) -> None:
+        request = make_request(
+            alpha={"ALPHA": 1},
+            instruments=(
+                _instrument("ALPHA", "CALL", 105, 0, 1000),
+                _instrument("G", "CALL", 110, 0, 100, bid_size=2, ask_size=0),
+            ),
+            universe=("G",),
+        )
+        # With a cap of five the target band is infeasible; exercise fallback.
+        for penalty, quantity in ((0, -5), (20, -5), (1e6, -2)):
+            with self.subTest(penalty=penalty):
+                result = ReferenceHedgeEngine(config=dg_config(
+                    v2_trade_limit=5, v2_depth_excess_penalty=penalty,
+                )).propose(request, created_at=NOW)
+                self.assertEqual(result.proposal["incremental_trades"], {"G": quantity})
+                self.assertEqual(result.execution_diagnostics.estimated_transaction_cost,
+                                 max(-quantity - 2, 0) * penalty)
+
+    def test_zero_depth_is_soft_and_missing_depth_uses_trade_cap(self) -> None:
+        for size, cost in ((0, 200), (None, 0)):
+            with self.subTest(size=size):
+                request = make_request(
+                    alpha={"ALPHA": 1},
+                    instruments=(
+                        _instrument("ALPHA", "CALL", 105, 0, 1000),
+                        _instrument("G", "CALL", 110, 0, 100, bid_size=size, ask_size=size),
+                    ),
+                    universe=("G",),
+                )
+                result = ReferenceHedgeEngine(config=dg_config()).propose(request, created_at=NOW)
+                self.assertEqual(result.proposal["incremental_trades"], {"G": -10})
+                self.assertEqual(result.execution_diagnostics.estimated_transaction_cost, cost)
+
+    def test_synthetic_excess_is_charged_once_in_diagnostics(self) -> None:
+        request = make_request(
+            alpha={"ALPHA": 1},
+            instruments=(
+                _instrument("ALPHA", "CALL", 105, -1000, 0),
+                _instrument("CALL", "CALL", 100, 100, 0, bid_size=0, ask_size=1),
+                _instrument("PUT", "PUT", 100, -100, 0, bid_size=2, ask_size=0),
+            ),
+            universe=("CALL", "PUT"),
+        )
+        result = ReferenceHedgeEngine(config=dg_config()).propose(request, created_at=NOW)
+        self.assertEqual(result.proposal["incremental_trades"], {"CALL": 5, "PUT": -5})
+        self.assertEqual(result.execution_diagnostics.estimated_transaction_cost, 4 * 20)
+        self.assertEqual(tuple(leg.estimated_transaction_cost for leg in result.execution_diagnostics.legs), (40, 40))
+
     def test_breached_delta_and_gamma_route_to_multileg_dg(self) -> None:
         instruments = (
             _instrument("ALPHA", "CALL", 105, 1.0, 2.0),
@@ -192,18 +305,61 @@ class ReferenceHedgeServiceTests(unittest.TestCase):
             v2_trade_limit=200,
         )
 
-        blocked = ReferenceHedgeEngine(config=base_config).propose(
+        default = ReferenceHedgeEngine(config=base_config).propose(
             request, created_at=NOW
         )
         enabled = ReferenceHedgeEngine(
             config=replace(base_config, v2_position_limit=2_000)
         ).propose(request, created_at=NOW)
 
-        self.assertEqual(blocked.decision_policy, "D_G_MILP")
-        self.assertEqual(blocked.proposal["incremental_trades"], {})
+        self.assertEqual(default.decision_policy, "D_G_MILP")
+        self.assertEqual(default.proposal["incremental_trades"], {"CALL": -200})
+        self.assertEqual(default.proposal["target_beta_positions"], {"CALL": 1_115})
         self.assertEqual(enabled.decision_policy, "D_G_MILP")
         self.assertEqual(enabled.proposal["incremental_trades"], {"CALL": -200})
         self.assertEqual(enabled.proposal["target_beta_positions"], {"CALL": 1_115})
+
+    def test_legacy_inventory_and_zero_depth_delta_breach_select_gamma_neutral_pair(self) -> None:
+        request = make_request(
+            alpha={"ALPHA": 1}, beta={"LEGACY": 700},
+            instruments=(
+                _instrument("ALPHA", "CALL", 105, -1000, -200),
+                _instrument("LEGACY", "CALL", 130, 0, 0),
+                _instrument("CALL", "CALL", 100, 50, 2, ask=3, bid_size=0, ask_size=0),
+                _instrument("PUT", "PUT", 100, -50, 2, ask=3, bid_size=0, ask_size=0),
+                _instrument("CHEAP", "CALL", 110, 100, -2, bid_size=0, ask_size=0),
+            ),
+            universe=("CALL", "PUT", "CHEAP"),
+        )
+        for limit in (300, None):
+            with self.subTest(limit=limit):
+                result = ReferenceHedgeEngine(config=dg_config(
+                    v2_position_limit=limit, delta_entry_risk_band=900,
+                    delta_target_risk_band=0.1, gamma_entry_risk_band=200,
+                    gamma_target_risk_band=150,
+                )).propose(request, created_at=NOW)
+                self.assertEqual(result.proposal["incremental_trades"], {"CALL": 10, "PUT": -10})
+                self.assertEqual(result.proposal["target_beta_positions"]["LEGACY"], 700)
+                self.assertEqual(result.risk_at_target_beta.delta, 0)
+                self.assertEqual(result.risk_at_target_beta.gamma, result.portfolio_risk.gamma)
+                self.assertEqual(result.execution_diagnostics.estimated_transaction_cost, 220)
+
+    def test_nonworsening_tolerance_uses_same_units_as_the_gate(self) -> None:
+        request = make_request(
+            alpha={"ALPHA": 1},
+            instruments=(
+                _instrument("ALPHA", "CALL", 105, -1000, 0),
+                _instrument("CALL", "CALL", 100, 50, 2, ask=3),
+                _instrument("PUT", "PUT", 100, -50, 2, ask=3),
+                _instrument("CHEAP", "CALL", 110, 100, -0.0001),
+            ), universe=("CALL", "PUT", "CHEAP"),
+        )
+        result = ReferenceHedgeEngine(config=dg_config(
+            delta_entry_risk_band=900, delta_target_risk_band=0.1,
+            gamma_entry_risk_band=2000, gamma_target_risk_band=1000,
+        )).propose(request, created_at=NOW)
+        self.assertEqual(result.proposal["incremental_trades"], {"CALL": 10, "PUT": -10})
+        self.assertEqual(result.risk_at_target_beta.gamma, 0)
 
     def test_inside_bands_routes_to_stateless_msh_and_respects_depth(self) -> None:
         request = make_request(

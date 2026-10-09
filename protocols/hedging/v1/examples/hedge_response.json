@@ -58,7 +58,6 @@
         "side": "BUY",
         "signedQuantity": "1",
         "displayedSize": "1",
-        "displayedDepthLimit": "1",
         "estimatedTransactionCost": 2.0,
         "shortMarginPerContract": 3959.999999999999
       },
@@ -67,7 +66,6 @@
         "side": "BUY",
         "signedQuantity": "1",
         "displayedSize": "1",
-        "displayedDepthLimit": "1",
         "estimatedTransactionCost": 2.0,
         "shortMarginPerContract": 3310.0
       },
@@ -76,7 +74,6 @@
         "side": "BUY",
         "signedQuantity": "1",
         "displayedSize": "1",
-        "displayedDepthLimit": "1",
         "estimatedTransactionCost": 2.0,
         "shortMarginPerContract": 3310.0
       }

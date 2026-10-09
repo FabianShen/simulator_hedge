@@ -9,9 +9,9 @@ from numbers import Integral
 from typing import Mapping
 
 from hedge_engine import Greeks, InstrumentGreeks, aggregate_greeks, build_hedge_proposal
-from hedge_engine.actions import scenario_risk
+from hedge_engine.actions import depth_excess, scenario_risk
 from hedge_engine.config import HedgeConfig
-from hedge_engine.dg import delta_gamma_hedge
+from hedge_engine.dg import _delta_gamma_actions, delta_gamma_hedge
 from hedge_engine.msh import MinimalSufficientHedge
 from hedge_engine.state import build_validated_state
 
@@ -235,6 +235,17 @@ def _execution_diagnostics(
 ) -> HedgeExecutionDiagnostics:
     cost = 0.0
     legs = []
+    depth_costs: dict[str, float] = {}
+    if decision_policy == "D_G_MILP":
+        # D/G actions have disjoint legs, so the executed action quantity can
+        # be recovered from any leg. Split a synthetic's single excess charge
+        # equally across its legs to preserve the solver/gate cost convention.
+        for action in _delta_gamma_actions(state, config):
+            code, leg = next(iter(action.legs.items()))
+            quantity = int(incremental.get(code, 0)) // int(leg)
+            charge = config.v2_depth_excess_penalty * depth_excess(action, quantity)
+            for code in action.legs:
+                depth_costs[code] = charge / len(action.legs)
     for code, signed_quantity in sorted(incremental.items()):
         instrument = state.instruments[code]
         if instrument.bid is None or instrument.ask is None or instrument.mid is None:
@@ -244,7 +255,8 @@ def _execution_diagnostics(
             * config.option_multiplier
             + config.option_fee
         )
-        cost += abs(int(signed_quantity)) * cost_per_contract
+        leg_cost = abs(int(signed_quantity)) * cost_per_contract + depth_costs.get(code, 0.0)
+        cost += leg_cost
         displayed_size = (
             instrument.ask_size if signed_quantity > 0 else instrument.bid_size
         )
@@ -256,16 +268,10 @@ def _execution_diagnostics(
                 displayed_size=displayed_size,
                 displayed_depth_limit=(
                     None
-                    if displayed_size is None
-                    else (
-                        floor(config.depth_fraction * displayed_size)
-                        if decision_policy == "MSH"
-                        else displayed_size
-                    )
+                    if displayed_size is None or decision_policy == "D_G_MILP"
+                    else floor(config.depth_fraction * displayed_size)
                 ),
-                estimated_transaction_cost=(
-                    abs(int(signed_quantity)) * cost_per_contract
-                ),
+                estimated_transaction_cost=leg_cost,
                 short_margin_per_contract=float(state.margins[code]),
             )
         )

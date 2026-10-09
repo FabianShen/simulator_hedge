@@ -32,6 +32,8 @@ def delta_gamma_hedge(
             action.cost,
             action.lower,
             action.upper,
+            action.depth_sell,
+            action.depth_buy,
         )
         for action in actions
     ]
@@ -42,6 +44,7 @@ def delta_gamma_hedge(
         margin_limit=capital * config.margin_limit_fraction,
         position_limit=config.v2_position_limit,
         gross_position_penalty=config.v2_gross_position_penalty,
+        depth_excess_penalty=config.v2_depth_excess_penalty,
         time_limit=config.v2_solver_time_limit_seconds,
     )
     vector = _solve(
@@ -50,6 +53,9 @@ def delta_gamma_hedge(
             [state.delta_risk / delta_scale, state.gamma_risk / gamma_scale, 0.0]
         ),
         target_band=1.0,
+        breached=(state.delta_breached, state.gamma_breached),
+        # The gate checks raw scenario-risk units; normalize its tolerance too.
+        nonworsening_tolerance=(1e-6 / delta_scale, 1e-6 / gamma_scale),
         **common,
     )
     if vector is not None and np.any(vector) and gamma_solution_is_useful(
@@ -59,6 +65,7 @@ def delta_gamma_hedge(
         capital=capital,
         margin_limit_fraction=config.margin_limit_fraction,
         position_limit=config.v2_position_limit,
+        depth_excess_penalty=config.v2_depth_excess_penalty,
     ):
         return orders_from_actions(actions, vector)
 
@@ -75,6 +82,7 @@ def delta_gamma_hedge(
         capital=capital,
         margin_limit_fraction=config.margin_limit_fraction,
         position_limit=config.v2_position_limit,
+        depth_excess_penalty=config.v2_depth_excess_penalty,
     ):
         return {}
     return orders_from_actions(actions, vector)

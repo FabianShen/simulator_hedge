@@ -106,10 +106,12 @@ class HedgePlanReplayTests(unittest.TestCase):
             for path in (pricing_path, portfolio_path, ledger_path):
                 path.write_text("{}", encoding="utf-8")
 
-            for arguments, expected in (
-                ([], 300),
-                (["--position-limit", "2000"], 2_000),
-                (["--position-limit", "0"], None),
+            for arguments, expected, penalty in (
+                ([], 300, 20),
+                (["--position-limit", "2000"], 2_000, 20),
+                (["--position-limit", "0"], None, 20),
+                (["--depth-excess-penalty", "0"], 300, 0),
+                (["--depth-excess-penalty", "12.5"], 300, 12.5),
             ):
                 with self.subTest(arguments=arguments):
                     received = {}
@@ -129,6 +131,18 @@ class HedgePlanReplayTests(unittest.TestCase):
                             main()
 
                     self.assertEqual(received["config"].v2_position_limit, expected)
+                    self.assertEqual(received["config"].v2_depth_excess_penalty, penalty)
+
+    def test_cli_rejects_invalid_depth_excess_penalty(self) -> None:
+        for value in ("-1", "nan", "inf", "-inf", "invalid"):
+            with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()):
+                with patch.object(sys, "argv", [
+                    "hedge_plan", "pricing.json", "portfolio.json", "ledger.json",
+                    f"--depth-excess-penalty={value}",
+                ]):
+                    with self.assertRaises(SystemExit) as raised:
+                        main()
+            self.assertEqual(raised.exception.code, 2)
 
     def test_cli_rejects_negative_or_fractional_position_limits(self) -> None:
         for value in ("-1", "1.5"):
@@ -141,7 +155,7 @@ class HedgePlanReplayTests(unittest.TestCase):
                         main()
             self.assertEqual(raised.exception.code, 2)
 
-    def test_offline_cli_position_limit_unblocks_legacy_oversized_beta(self) -> None:
+    def test_offline_cli_default_position_limit_preserves_legacy_inventory(self) -> None:
         pricing = _recorded_pricing()
         beta = {"C-3.45": 1_315}
         priced_results = tuple(
@@ -192,7 +206,8 @@ class HedgePlanReplayTests(unittest.TestCase):
                     )
 
         self.assertEqual(output["default"]["decision_policy"], "D_G_MILP")
-        self.assertEqual(output["default"]["incremental_trades"], {})
+        self.assertEqual(output["default"]["incremental_trades"], {"C-3.45": -200})
+        self.assertEqual(output["default"]["target_beta_positions"], {"C-3.45": 1_115})
         self.assertEqual(output["raised"]["decision_policy"], "D_G_MILP")
         self.assertTrue(output["raised"]["incremental_trades"])
 

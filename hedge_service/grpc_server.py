@@ -109,7 +109,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--position-limit", type=_nonnegative_int, default=300,
-        help="max hedge contracts per instrument; 0 disables the limit (default 300)",
+        help="hedge position cap; existing excess cannot grow; 0 disables (default 300)",
+    )
+    parser.add_argument(
+        "--depth-excess-penalty", type=_nonnegative_float, default=20.0,
+        help="D/G cost per action contract beyond displayed depth (default 20)",
     )
     args = parser.parse_args()
 
@@ -124,6 +128,7 @@ def main() -> None:
             delta_limit=args.delta_limit,
             gamma_limit=args.gamma_limit,
             v2_position_limit=(args.position_limit or None),
+            v2_depth_excess_penalty=args.depth_excess_penalty,
         ),
         capital=args.capital,
     )
@@ -132,6 +137,11 @@ def main() -> None:
     )
     server.start()
     print(f"hedge service listening on {args.bind} (port {port})", flush=True)
+    print(
+        f"D/G displayed depth is soft: excess penalty={args.depth_excess_penalty}/contract; "
+        "orders may exceed displayed liquidity and actual fills are not guaranteed",
+        flush=True,
+    )
     try:
         server.wait_for_termination()
     except KeyboardInterrupt:
@@ -150,6 +160,13 @@ def _positive_float(value: str) -> float:
     result = _finite_float(value)
     if result <= 0:
         raise argparse.ArgumentTypeError("value must be positive")
+    return result
+
+
+def _nonnegative_float(value: str) -> float:
+    result = _finite_float(value)
+    if result < 0:
+        raise argparse.ArgumentTypeError("value must be nonnegative")
     return result
 
 

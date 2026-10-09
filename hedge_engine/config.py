@@ -19,6 +19,7 @@ class HedgeConfig:
     v2_trade_limit: int | None = 200
     v2_position_limit: int | None = 300
     v2_gross_position_penalty: float = 0.1
+    v2_depth_excess_penalty: float = 20.0
     v2_solver_time_limit_seconds: float = 0.5
     delta_entry_risk_band: float = 30_000.0
     delta_target_risk_band: float = 10_000.0
@@ -48,6 +49,7 @@ class HedgeConfig:
             "option_fee", "risk_spot_shock_fraction", "risk_vol_shock",
             "margin_limit_fraction", "alpha_hedge_ratio",
             "v2_gross_position_penalty", "v2_solver_time_limit_seconds",
+            "v2_depth_excess_penalty",
             "delta_entry_risk_band", "delta_target_risk_band",
             "gamma_entry_risk_band", "gamma_target_risk_band",
             "target_delta", "target_gamma", "delta_center_risk", "gamma_center_risk",
@@ -69,6 +71,8 @@ class HedgeConfig:
                 raise ValueError(f"{name} must be positive or None")
         if self.v2_solver_time_limit_seconds <= 0 or self.solver_time_limit_seconds <= 0:
             raise ValueError("solver time limits must be positive")
+        if self.v2_depth_excess_penalty < 0:
+            raise ValueError("v2_depth_excess_penalty must be nonnegative")
         if self.target_delta != 0 and self.delta_limit is None:
             raise ValueError("a nonzero target_delta requires delta_limit")
         if self.target_gamma != 0 and self.gamma_limit is None:

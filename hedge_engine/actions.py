@@ -52,10 +52,11 @@ def make_action(state, name, legs, role, config, trade_limit):
         Greeks(**total), state.spot,
         config.risk_spot_shock_fraction, config.risk_vol_shock,
     )
-    lower = -int(np.floor(min(negative_depth)))
-    upper = int(np.floor(min(positive_depth)))
-    if trade_limit is not None:
-        lower, upper = max(lower, -trade_limit), min(upper, trade_limit)
+    depth_sell = int(np.floor(min(negative_depth)))
+    depth_buy = int(np.floor(min(positive_depth)))
+    # Keep the per-leg trade cap hard, independently of displayed liquidity.
+    capacity = int(np.floor(fallback / max(abs(leg) for leg in legs.values())))
+    lower, upper = -capacity, capacity
     for code, leg in legs.items():
         alpha = int(state.context.strategy_positions.get(code, 0))
         if not alpha:
@@ -67,7 +68,15 @@ def make_action(state, name, legs, role, config, trade_limit):
         upper = min(upper, floor(max(first, second) + 1e-12))
     if lower > upper or (lower == 0 and upper == 0):
         return None
-    return HedgeAction(name, role, legs, tuple(risk), float(cost), lower, upper)
+    return HedgeAction(
+        name, role, legs, tuple(risk), float(cost), lower, upper,
+        depth_sell, depth_buy,
+    )
+
+
+def depth_excess(action: HedgeAction, quantity: int) -> int:
+    """Displayed-depth excess in action units, using the executed direction."""
+    return max(0, int(quantity) - action.depth_buy, -int(quantity) - action.depth_sell)
 
 
 def post_trade_feasible(
@@ -91,7 +100,8 @@ def post_trade_feasible(
             if not hedge[code]:
                 hedge.pop(code)
     if position_limit is not None and any(
-        abs(value) > position_limit for value in hedge.values()
+        abs(value) > max(position_limit, abs(state.context.hedge_positions.get(code, 0)))
+        for code, value in hedge.items()
     ):
         return False
     if any(
@@ -109,7 +119,8 @@ def post_trade_feasible(
 
 
 def gamma_solution_is_useful(
-    state, actions, vector, *, capital, margin_limit_fraction, position_limit
+    state, actions, vector, *, capital, margin_limit_fraction, position_limit,
+    depth_excess_penalty,
 ) -> bool:
     """Validate material improvement on the currently breached D/G dimensions."""
     before = (state.delta_risk, state.gamma_risk)
@@ -122,6 +133,7 @@ def gamma_solution_is_useful(
     benefit = sum(max(abs(old) - abs(new), 0.0)
                   for old, new, active in zip(before, after, breached) if active)
     cost = sum(float(action.cost) * abs(int(quantity))
+               + depth_excess_penalty * depth_excess(action, quantity)
                for action, quantity in zip(actions, vector))
     improved = all(not active or abs(new) < abs(old) - 1e-9
                    for old, new, active in zip(before, after, breached))

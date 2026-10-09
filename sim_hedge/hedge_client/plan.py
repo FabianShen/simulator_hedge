@@ -6,6 +6,7 @@ import argparse
 from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal
+from math import isfinite
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -62,7 +63,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--position-limit", type=_nonnegative_int, default=300,
-        help="max hedge contracts per instrument; 0 disables the limit (default 300)",
+        help="hedge position cap; existing excess cannot grow; 0 disables (default 300)",
+    )
+    parser.add_argument(
+        "--depth-excess-penalty", type=_nonnegative_float, default=20.0,
+        help="D/G cost per action contract beyond displayed depth (default 20)",
     )
     args = parser.parse_args()
     try:
@@ -86,6 +91,7 @@ def main() -> None:
                 delta_limit=args.delta_limit,
                 gamma_limit=args.gamma_limit,
                 v2_position_limit=(args.position_limit or None),
+                v2_depth_excess_penalty=args.depth_excess_penalty,
             ),
         )
         output = {
@@ -369,6 +375,13 @@ def _broker_positions(portfolio: Mapping[str, Any]) -> dict[str, int]:
 
 def _datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _nonnegative_float(value: str) -> float:
+    result = float(value)
+    if not isfinite(result) or result < 0:
+        raise argparse.ArgumentTypeError("value must be finite and nonnegative")
+    return result
 
 
 def _nonnegative_int(value: str) -> int:

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 import unittest
 
 from hedge_engine.config import HedgeConfig
@@ -47,6 +48,23 @@ class MinimalSufficientHedgeTests(unittest.TestCase):
         result = MinimalSufficientHedge(config, 100_000_000).propose(state)
 
         self.assertEqual(result, {})
+
+    def test_legacy_inventory_can_reduce_without_reaching_limit_in_one_slice(self) -> None:
+        config = HedgeConfig(minimum_target_gross_reduction=1, minimum_slice_gross_reduction=1)
+        for current in (700, -700):
+            with self.subTest(current=current):
+                state = _state(bid_size=100, ask_size=100)
+                state = replace(state, context=replace(state.context,
+                                hedge_positions={"CALL": current}, positions={"CALL": current}))
+                policy = MinimalSufficientHedge(config, 200_000_000)
+                orders = policy.propose(state)
+                self.assertEqual(orders, {"CALL": -50 if current > 0 else 50})
+                self.assertEqual(policy._evaluate_state(
+                    state, {"CALL": 1 if current > 0 else -1}, target_map=None, require_depth=True,
+                )["reason"], "position_limit")
+                self.assertEqual(policy._evaluate_state(
+                    state, {"CALL": -51 if current > 0 else 51}, target_map=None, require_depth=True,
+                )["reason"], "depth")
 
 
 def _state(*, bid_size: int, ask_size: int):

@@ -74,7 +74,8 @@ versioned incremental Beta proposal after every accepted pricing result:
 .\.venv\Scripts\python.exe -m hedge_service.grpc_server `
   --capital 100000000 `
   --delta-entry-risk-band 30000 --delta-target-risk-band 10000 `
-  --gamma-entry-risk-band 10000 --gamma-target-risk-band 10000
+  --gamma-entry-risk-band 10000 --gamma-target-risk-band 10000 `
+  --depth-excess-penalty 20
 
 # Terminal 3
 .\.venv\Scripts\python.exe -m sim_hedge `
@@ -89,9 +90,28 @@ MILP whenever either notional scenario-risk entry band is breached; otherwise
 it runs the stateless MSH policy. Capital and risk bands are service-side
 configuration. The emitted proposal identifies the selected D/G-MILP or MSH
 policy and includes incremental trades, Gamma-risk improvement, estimated
-transaction costs, side-specific displayed depth and applied depth cap, and
+transaction costs (including D/G depth excess penalties), side-specific displayed
+depth and the MSH depth cap, and
 short-margin diagnostics. These estimates do not guarantee execution or broker
 margin treatment.
+
+D/G displayed depth is a soft cost: each action contract beyond its direction's
+displayed depth costs 20 by default, configurable with `--depth-excess-penalty`
+on both the service and offline planner. For a synthetic action, direction depth
+is the minimum executable size across its legs, and the excess is charged once
+per action contract; diagnostics split that charge equally across the legs.
+Missing sizes use the trade cap; an explicit zero size incurs excess cost on
+every contract. A zero penalty ignores depth cost; a large penalty favors
+depth-feasible solutions when available, but does not override the main solver's
+hard D/G target bands. Trade (200 per leg), margin, and Alpha's 30% limits
+remain hard. In both D/G and MSH, each hedge position is bounded by
+`max(position_limit, abs(current_position))`: existing positions above the
+default 300 may remain or shrink, but cannot grow in absolute size; new or
+smaller positions retain the configured ceiling. D/G enforces nonworsening
+of each unbreached Delta/Gamma dimension inside the main MILP, then checks
+the proposed hedge's benefit and costs. MSH retains its hard cap at 50% of displayed
+depth. D/G proposals can exceed visible liquidity: simulated COUNTERPARTY fills
+are an optimistic assumption and real-market fills are not guaranteed.
 
 To express a nonzero hedge center in raw, multiplier-scaled portfolio Greeks,
 set the center and its absolute tolerance together. For example,

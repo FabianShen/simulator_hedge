@@ -154,8 +154,9 @@ class MinimalSufficientHedge:
             constraint([(u0 + i, 1), (q0 + i, 1)], lb=item.current)
             constraint([(u0 + i, 1), (w0 + i, -big_m)], ub=0)
             if position_limit is not None:
-                lb[q0 + i] = max(lb[q0 + i], -position_limit)
-                ub[q0 + i] = min(ub[q0 + i], position_limit)
+                allowed_position = max(position_limit, abs(item.current))
+                lb[q0 + i] = max(lb[q0 + i], -allowed_position)
+                ub[q0 + i] = min(ub[q0 + i], allowed_position)
             if item.strategy:
                 alpha_limit = self.config.alpha_hedge_ratio * abs(item.strategy)
                 lb[q0 + i] = max(lb[q0 + i], ceil(-alpha_limit - 1e-12))
@@ -321,7 +322,9 @@ class MinimalSufficientHedge:
                 if abs(quantity) > int(np.floor(self.config.depth_fraction * displayed)):
                     return self._result(False, "depth", code=code)
             new_quantity = int(after.get(code, 0)) + quantity
-            if self.config.v2_position_limit is not None and abs(new_quantity) > self.config.v2_position_limit:
+            if self.config.v2_position_limit is not None and abs(new_quantity) > max(
+                self.config.v2_position_limit, abs(item.current)
+            ):
                 return self._result(False, "position_limit", code=code)
             if target_map is not None:
                 current = int(state.context.hedge_positions.get(code, 0))
